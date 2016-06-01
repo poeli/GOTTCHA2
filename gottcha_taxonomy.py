@@ -6,31 +6,15 @@
 # Last update: 05/15/2016
 
 import sys
+import os.path
 import json
-
-# functions:
-#    taxid2rank
-#    taxid2name
-#    taxid2nameOnRank
-#    taxid2taxidOnRank
-#    taxid2lineage
-#    taxid2lineageJSON
-#    taxid2fullLineage
-#    taxidIsLeaf
-#    getTaxRank
-#    getTaxName
-#    getTaxDepth
-#    getTaxParent
-#    loadTaxonomy
-# Other function:
-#    _autoVivification()
 
 ####################
 # Global variables #
 ####################
 
-libPath = "/panfs/biopan01/scratch-218817/opt/src/KronaTools-2.6.1/lib"
-taxonomyDir = libPath + "/../taxonomy"
+libPath = os.path.dirname(os.path.realpath(__file__))
+taxonomyDir = libPath + "/database"
 DEBUG=0
 
 taxDepths  = {}
@@ -251,31 +235,37 @@ def getTaxType( taxID ):
 def getTaxRank( taxID ):
 	return taxRanks[taxID]
 
-def loadTaxonomy( custom_taxonomy_file="", taxonomy_file = taxonomyDir+"/taxonomy.tab" ):
+def loadTaxonomy( custom_taxonomy_file="", taxonomy_file = taxonomyDir+"/taxonomy.tsv" ):
 	if DEBUG: sys.stderr.write( "[INFO] Open taxonomy file: %s\n"%(taxonomy_file) )
 
-	with open(taxonomy_file, 'r') as f:
-		for line in f:
-			tid, depth, parent, rank, name = line.rstrip('\r\n').split('\t')
-			taxParents[tid] = parent
-			taxDepths[tid] = depth
-			taxRanks[tid] = rank
-			taxNames[tid] = name
-			taxLeaves[tid] = 1;
-			if parent in taxLeaves: del taxLeaves[parent]
-		f.close()
+	try:
+		with open(taxonomy_file, 'r') as f:
+			for line in f:
+				tid, depth, parent, rank, name = line.rstrip('\r\n').split('\t')
+				taxParents[tid] = parent
+				taxDepths[tid] = depth
+				taxRanks[tid] = rank
+				taxNames[tid] = name
+				taxLeaves[tid] = 1;
+				if parent in taxLeaves: del taxLeaves[parent]
+			f.close()
+	except IOError:
+		_die( "Failed to open taxonomy file: %s.\n" % taxonomy_file )
 
 	if custom_taxonomy_file:
-		with open(custom_taxonomy_file, 'r') as f:
-			for line in f:
-				tid, name = line.rstrip('\r\n').split('\t')
-				if "." in t:
-					parent, sid = tid.split('.')
-					taxParents[tid] = parent
-					taxRanks[tid] = "strain"
-					taxNames[tid] = name
-					taxLeaves[tid] = 1;
-		f.close()
+		try:
+			with open(custom_taxonomy_file, 'r') as f:
+				for line in f:
+					tid, name = line.rstrip('\r\n').split('\t')
+					if "." in t:
+						parent, sid = tid.split('.')
+						taxParents[tid] = parent
+						taxRanks[tid] = "strain"
+						taxNames[tid] = name
+						taxLeaves[tid] = 1;
+				f.close()
+		except IOError:
+			_die( "Failed to open custom taxonomy file: %s.\n" % custom_taxonomy_file )
 
 	if DEBUG: sys.stderr.write( "[INFO] Done parsing taxonomy.tab (%d taxons loaded)\n" % len(taxParents) )
 

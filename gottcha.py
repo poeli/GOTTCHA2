@@ -1,13 +1,10 @@
 #!/usr/bin/env python
 
-"""
-[AUTHOR]
-Po-E (Paul) Li
-Bioinformatics Team
-Los Alamos National Laboratory
-2016/05/31
-
-[COPYRIGHT]
+__author__    = "Po-E (Paul) Li, Bioinformatics Team, Los Alamos National Laboratory"
+__credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
+__version__   = "2.0 Beta"
+__date__      = "2016/05/31"
+__copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
 under U.S. Government contract DE-AC52-06NA25396 for Los Alamos National Laboratory
 (LANL), which is operated by Los Alamos National Security, LLC for the U.S.
@@ -28,7 +25,7 @@ License for more details.
 """
 
 import argparse as ap, textwrap as tw
-import sys, time, os.path as op
+import sys, time
 import gottcha_taxonomy as gt
 from subprocess import getstatusoutput
 from re import search
@@ -303,10 +300,10 @@ def outputResultsAsTree( tid, res_tree, res_rollup, indent, taxid_fi, o, mc, mr,
 	iterate taxonomy tree and print results recursively
 	"""
 	if int(tid) == 1:
-		o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % ( "", "NAME", "LEVEL", "READ_COUNT", "TOTAL_BP_MAPPED", "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_DOC" ) )
+		o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % ( "", "NAME", "LEVEL", "READ_COUNT", "TOTAL_BP_MAPPED", "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_COV", "LINEAR_DOC" ) )
 	else:
 		if mc <= int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"]) and mr <= int(res_rollup[tid]["MR"]) and ml <= res_rollup[tid]["LL"]:
-			o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%.4f\n" % (
+			o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%.4f\t%.4f\n" % (
 				indent,
 				gt.taxid2name(tid),
 				gt.taxid2rank(tid),
@@ -314,6 +311,7 @@ def outputResultsAsTree( tid, res_tree, res_rollup, indent, taxid_fi, o, mc, mr,
 				res_rollup[tid]["MB"],
 				res_rollup[tid]["NM"],
 				res_rollup[tid]["LL"],
+				int(res_rollup[tid]["LL"])/int(res_rollup[tid]["SL"]),
 				int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"])
 				)
 			)
@@ -399,15 +397,14 @@ def readMapping( reads, db, threads, mm_penalty, samfile, logfile ):
 	return exitcode, bwa_cmd
 
 if __name__ == '__main__':
-	verison  = "2.0 BETA"
-	argvs    = parse_params( verison )
+	argvs    = parse_params( __version__ )
 	start    = time.time()
 	numlines = 10000
 	sam_fp   = argvs.sam[0] if argvs.sam else ""
 	samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
 	logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
 
-	sys.stderr.write( "[%s] Starting GOTTCHA (v%s)\n" % (timeSpend(start), verison) )
+	sys.stderr.write( "[%s] Starting GOTTCHA (v%s)\n" % (timeSpend(start), __version__) )
 
 	#prepare output object
 	out_fp = sys.stdout
@@ -462,7 +459,7 @@ if __name__ == '__main__':
 
 	if argvs.mode == 'class':
 		processSAMfileReadClass( sam_fp, out_fp, argvs.dbLevel, argvs.taxonomy )
-		sys.stderr.write( "[%s] Done classifying reads. Results saved to %s.\n" % (timeSpend(start), outfile) )
+		sys.stderr.write( "[%s] Done classifying reads. Results printed to %s.\n" % (timeSpend(start), outfile) )
 
 	elif argvs.mode == 'extract':
 		processSAMfileReadExtract( sam_fp, out_fp, argvs.taxonomy )
@@ -480,4 +477,4 @@ if __name__ == '__main__':
 		elif argvs.mode == 'tree':
 			outputResultsAsTree( "1", res_tree, res_rollup, "", argvs.taxonomy, out_fp, argvs.minCov, argvs.minReads, argvs.minLen )
 
-		sys.stderr.write( "[%s] Done taxonomy preofiling; %s results saved to %s.\n" % (timeSpend(start), argvs.mode, outfile) )
+		sys.stderr.write( "[%s] Done taxonomy preofiling; %s results printed to %s.\n" % (timeSpend(start), argvs.mode, outfile) )
