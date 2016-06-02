@@ -15,7 +15,7 @@ Python 3.0+ is required. Linux (2.6 kernel or later) or Mac (OSX 10.6 Snow Leopa
 -------------------------------------------------------------------
 ## INSTRUCTIONS
 
-```
+```python
 usage: gottcha.py [-h] (-i [FASTQ] [[FASTQ] ...] | -s [SAMFILE])
                   [-d [BWA_INDEX]] [-l [LEVEL]] [-pm <INT>]
                   [-m {summary,full,tree,class,extract}] [-x [TAXID]]
