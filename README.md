@@ -54,11 +54,12 @@ Mismatch penalty for BWA-MEM (pass to option -B while BWA-MEM is running). You c
 -m {summary,full,tree,class,extract}, --mode {summary,full,tree,class,extract}
 ```
 You can specify one of the following output modes:
-    -   "summary" : report a summary of profiling result;
-    -   "full" : other than a summary result, this mode will report unfiltered profiling results with more detail;
-    -   "tree" : report results with lineage of taxonomy;
-    -   "class" : output results of classified reads;
-    -   "extract" : extract mapped reads; Note that only results/reads belongs to descendants of
+
+* "summary" : report a summary of profiling result;
+* "full" : other than a summary result, this mode will report unfiltered profiling results with more detail;
+* "tree" : report results with lineage of taxonomy;
+* "class" : output results of classified reads;
+* "extract" : extract mapped reads; Note that only results/reads belongs to descendants of
 TAXID will be reported/extracted if option [--taxonomy TAXID] is specified. [default: summary]
 ```
 -x [TAXID], --taxonomy [TAXID]
