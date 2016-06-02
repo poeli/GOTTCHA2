@@ -96,7 +96,7 @@ def parse_params( ver ):
 					help="Write on standard output.")
 
 	p.add_argument( '-v','--verbose', action="store_true",
-	                help="Verbose output")
+	                help="Enable verbose output")
 
 	args_parsed = p.parse_args()
 
