@@ -44,7 +44,8 @@ def taxid2nameOnRank( taxID, r ):
 	rank = getTaxRank(taxID)
 	name = getTaxName(taxID)
 
-	if r.startswith("strain"): return name
+	if r == "strain" and taxidIsLeaf(taxID):
+		return name
 
 	while taxID:
 		if rank.upper() == r.upper(): return name
@@ -232,8 +233,11 @@ def getTaxType( taxID ):
 
 	return taxID
 
-def getTaxRank( taxID ):
-	return taxRanks[taxID]
+def getTaxRank( taxID, guess_strain=True ):
+	if taxRanks[taxID] == "no rank" and taxidIsLeaf(taxID) and guess_strain:
+		return "strain"
+	else:
+		return taxRanks[taxID]
 
 def loadTaxonomy( custom_taxonomy_file="", taxonomy_file = taxonomyDir+"/taxonomy.tsv" ):
 	if DEBUG: sys.stderr.write( "[INFO] Open taxonomy file: %s\n"%(taxonomy_file) )
