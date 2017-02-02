@@ -8,6 +8,11 @@ generated from spiked environmental and clinical samples, and robustly demonstra
 superior performance compared with other available tools.
 
 -------------------------------------------------------------------
+## DISCLOSURE
+
+GOTTCHAv2 is currently under development in ALPHA stage. Databases for v1 will not be compatible with v2.
+
+-------------------------------------------------------------------
 ## SYSTEM REQUIREMENT
 
 Python 3.0+ is required. Linux (2.6 kernel or later) or Mac (OSX 10.6 Snow Leopard or later) operating system with minimal 8 GB of RAM is recommended.

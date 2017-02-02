@@ -186,7 +186,8 @@ def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, 
 			info[major_level[lvl]]["taxid"] = 0
 
 		last=level[lvl]
-		lineage.append( "%s__%s"%(lvl, level[lvl]) )
+		#lineage.append( "%s__%s"%(lvl, level[lvl]) )
+		lineage.append( level[lvl] )
 
 	lineage.reverse()
 
@@ -239,7 +240,7 @@ def getTaxRank( taxID, guess_strain=True ):
 	else:
 		return taxRanks[taxID]
 
-def loadTaxonomy( custom_taxonomy_file="", taxonomy_file = taxonomyDir+"/taxonomy.tsv" ):
+def loadTaxonomy( taxonomy_file = taxonomyDir+"/taxonomy.tsv", custom_taxonomy_file=""):
 	if DEBUG: sys.stderr.write( "[INFO] Open taxonomy file: %s\n"%(taxonomy_file) )
 
 	try:

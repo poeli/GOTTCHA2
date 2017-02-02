@@ -1,8 +1,8 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
-__author__    = "Po-E (Paul) Li, Bioinformatics Team, Los Alamos National Laboratory"
+__author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.0 Beta"
+__version__   = "2.1 BETA"
 __date__      = "2016/05/31"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -25,10 +25,9 @@ License for more details.
 """
 
 import argparse as ap, textwrap as tw
-import sys, time
+import sys, os, time, subprocess
 import gottcha_taxonomy as gt
-from subprocess import getstatusoutput
-from re import search
+from re import search,findall
 from multiprocessing import Pool
 from itertools import chain
 
@@ -54,17 +53,21 @@ def parse_params( ver ):
 	                choices=['superkingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'strain'],
 	                help="""Specify the taxonomic level of the input database. You can choose one rank from "superkingdom", "phylum", "class", "order", "family", "genus", "species" and "strain". The value will be auto-detected if the input database ended with levels (e.g. GOTTCHA_db.species).""")
 
+	p.add_argument( '-ti','--taxInfo', metavar='[FILE]', type=str, default='',
+	                help="""Specify the path of taxonomy information file (taxonomy.tsv). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
+
 	p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=5,
 					help="Mismatch penalty for BWA-MEM (pass to option -B while BWA-MEM is running). You can use 99 for not allowing mismatch in alignments (except for extreme cases). [default: 5]")
 
 	p.add_argument( '-m','--mode', type=str, default='summary',
-	                choices=['summary', 'full', 'tree', 'class', 'extract'],
+	                choices=['summary', 'full', 'tree', 'class', 'extract', 'lineage'],
 					help="""You can specify one of the following output modes:
                             "summary" : report a summary of profiling result;
                             "full"    : other than a summary result, this mode will report unfiltered profiling results with more detail;
                             "tree"    : report results with lineage of taxonomy;
                             "class"   : output results of classified reads;
                             "extract" : extract mapped reads;
+                            "lineage" : output abundance and lineage in a line;
 						  Note that only results/reads belongs to descendants of TAXID will be reported/extracted if option [--taxonomy TAXID] is specified. [default: summary]""" )
 
 	p.add_argument( '-x','--taxonomy', metavar='[TAXID]', type=str,
@@ -92,11 +95,14 @@ def parse_params( ver ):
 	p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
 					help="Minimum unique length to be considered valid in abundance calculation [default: 60]")
 
+	p.add_argument( '-nc','--noCutoff', action="store_true",
+					help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0].")
+
 	p.add_argument( '-c','--stdout', action="store_true",
 					help="Write on standard output.")
 
-	p.add_argument( '-v','--verbose', action="store_true",
-	                help="Enable verbose output")
+	p.add_argument( '--silent', action="store_true",
+	                help="Disable all messages.")
 
 	args_parsed = p.parse_args()
 
@@ -108,6 +114,35 @@ def parse_params( ver ):
 
 	if args_parsed.input and args_parsed.sam:
 		p.error( '--input and --same are incompatible options.' )
+
+	if args_parsed.database:
+		#assign default path for database name
+		if "/" not in args_parsed.database and not os.path.isfile( args_parsed.database + ".amb" ):
+			bin_dir = os.path.dirname(os.path.realpath(__file__))
+			args_parsed.database = bin_dir + "/database/" + args_parsed.database
+
+	if args_parsed.database:
+		if not os.path.isfile( args_parsed.database + ".amb" ):
+			p.error( 'Incorrect BWA index: missing %s.amb.' % args_parsed.database )
+		if not os.path.isfile( args_parsed.database + ".ann" ):
+			p.error( 'Incorrect BWA index: missing %s.ann.' % args_parsed.database )
+		if not os.path.isfile( args_parsed.database + ".pac" ):
+			p.error( 'Incorrect BWA index: missing %s.pac.' % args_parsed.database )
+		if not os.path.isfile( args_parsed.database + ".bwt" ):
+			p.error( 'Incorrect BWA index: missing %s.bwt.' % args_parsed.database )
+		if not os.path.isfile( args_parsed.database + ".sa" ):
+			p.error( 'Incorrect BWA index: missing %s.sa.' % args_parsed.database )
+
+	if not args_parsed.taxInfo:
+		if args_parsed.database:
+			db_dir = search( '^(.*?)[^\/]+$', args_parsed.database )
+			args_parsed.taxInfo = db_dir.group(1) + "taxonomy.tsv"
+		else:
+			bin_dir = os.path.dirname(os.path.realpath(__file__))
+			args_parsed.taxInfo = bin_dir + "/database/taxonomy.tsv"
+
+	if not os.path.isfile( args_parsed.taxInfo ):
+		p.error( 'Taxonomy information (taxonomy.tsv) not found.' )
 
 	if not args_parsed.prefix:
 		if args_parsed.input:
@@ -129,7 +164,18 @@ def parse_params( ver ):
 		else:
 			p.error( '--dbLevel is missing and cannot be auto-detected.' )
 
+	if args_parsed.noCutoff:
+		#p.error( 'conflict options: cutoff(s) are specified with --noCutoff option.' )
+		args_parsed.minCov = 0
+		args_parsed.minReads = 0
+		args_parsed.minLen = 0
+
 	return args_parsed
+
+def dependency_check(cmd):
+	proc = subprocess.Popen("which " + cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+	outs, errs = proc.communicate()
+	return outs.decode().rstrip() if proc.returncode == 0 else False
 
 def join_ranges(data, offset=0):
 	"""
@@ -172,14 +218,16 @@ def parse(line):
 	read2   16  test    11  0   3S10M5S *   0   0   GGGCCCCCCCCCCGGGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
 	"""
 	temp = line.split('\t')
-
 	name = temp[0]
 	match_len    = search('(\d+)M', temp[5])
 	mismatch_len = search('NM:i:(\d+)', temp[11])
 	start = int(temp[3])
 	end   = start + int(match_len.group(1)) - 1;
 
-	return temp[2], [start, end], int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5]
+	ref = temp[2].rstrip('|')
+	ref = ref[: ref.find(".0") if ref.find(".0")>0 else None ]
+
+	return ref, [start, end], int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5]
 
 def timeSpend( start ):
 	done = time.time()
@@ -249,6 +297,8 @@ def processSAMfileReadExtract( f, o, taxid ):
 		fullLineage = gt.taxid2fullLineage(t)
 
 		if int(flag) & 16:
+			g = findall("\d+\w", cigr)
+			cigr = "".join(list(reversed(g)))
 			rseq = seqReverseComplement(rseq)
 			rq = rq[::-1]
 
@@ -295,13 +345,14 @@ def taxonomyRollUp( r ):
 
 	return res_rollup, res_tree
 
-def outputResultsAsTree( tid, res_tree, res_rollup, indent, taxid_fi, o, mc, mr, ml ):
+def outputResultsAsTree( tid, res_tree, res_rollup, indent, dbLevel, lvlFlag, taxid_fi, o, mc, mr, ml ):
 	"""
 	iterate taxonomy tree and print results recursively
 	"""
 	if int(tid) == 1:
 		o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % ( "", "NAME", "LEVEL", "READ_COUNT", "TOTAL_BP_MAPPED", "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_COV", "LINEAR_DOC" ) )
 	else:
+		if gt.taxid2rank(tid) == dbLevel: lvlFlag = 1
 		if mc <= int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"]) and mr <= int(res_rollup[tid]["MR"]) and ml <= res_rollup[tid]["LL"]:
 			o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%.4f\t%.4f\n" % (
 				indent,
@@ -323,7 +374,13 @@ def outputResultsAsTree( tid, res_tree, res_rollup, indent, taxid_fi, o, mc, mr,
 				if not isDescendant( tid, taxid_fi ):
 					continue
 
-			outputResultsAsTree( cid, res_tree, res_rollup, indent, taxid_fi, o, mc, mr, ml )
+			if lvlFlag and gt.taxid2rank(cid) != dbLevel:
+				continue
+
+			if res_rollup[tid] and ( mc > int(res_rollup[tid]["LL"])/int(res_rollup[tid]["SL"]) or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]) ):
+				continue
+
+			outputResultsAsTree( cid, res_tree, res_rollup, indent, dbLevel, lvlFlag, taxid_fi, o, mc, mr, ml )
 
 def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 	output = gt._autoVivification()
@@ -331,6 +388,10 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 
 	for tid in res_rollup:
 		rank = gt.taxid2rank(tid)
+
+		if mode == "summary" and ( mc > res_rollup[tid]["LL"]/res_rollup[tid]["SL"] or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]) ):
+			continue
+
 		if rank in major_ranks and major_ranks[rank] <= major_ranks[tg_rank]:
 			if relAbu == "LINEAR_LENGTH":
 				abundance = int(res_rollup[tid]["LL"])
@@ -382,99 +443,147 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 				  res_rollup[tid]["NM"],
 				  res_rollup[tid]["LL"],
 				  int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"]),
-				  int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"])/output[rank]["TOT_ABU"],
+				  output[rank]["RES"][tid]/output[rank]["TOT_ABU"],
 				  add_field
 				)
 			)
+
+def outputResultsAsLineage( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
+	for tid in res_rollup:
+		rank = gt.taxid2rank(tid)
+
+		if rank != tg_rank or ( mc > res_rollup[tid]["LL"]/res_rollup[tid]["SL"] or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]) ):
+			continue
+
+		if relAbu == "LINEAR_LENGTH":
+			abundance = int(res_rollup[tid]["LL"])
+		elif relAbu == "TOTAL_BP_MAPPED":
+			abundance = int(res_rollup[tid]["MB"])
+		elif relAbu == "READ_COUNT":
+			abundance = int(res_rollup[tid]["MR"])
+		else:
+			abundance = int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"])
+
+		o.write( "%s\t%s\n" %
+			( abundance,
+			  '\t'.join( gt.taxid2lineage(tid).split('|') )
+			)
+		)
 
 def readMapping( reads, db, threads, mm_penalty, samfile, logfile ):
 	"""
 	mapping reads to database
 	"""
+
 	input_file = " ".join(reads)
-	bwa_cmd = "bwa mem -k30 -T30 -A1 -B%s -O99 -E99 -L0 -P -S -t%s %s %s | samtools view -F4 > %s 2> %s" % ( mm_penalty, threads, db, input_file, samfile, logfile )
-	exitcode, msg = getstatusoutput( bwa_cmd )
-	return exitcode, bwa_cmd
+
+	bash_cmd   = "set -o pipefail; set -x;"
+	bwa_cmd    = "bwa mem -k30 -T30 -A1 -B%s -O99 -E99 -L0 -t%s %s %s" % (mm_penalty, threads, db, input_file )
+	filter_cmd = "awk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048){print $_}'"
+	cmd        = "%s %s 2> %s | %s > %s" % ( bash_cmd, bwa_cmd, logfile, filter_cmd, samfile )
+
+	proc = subprocess.Popen( cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+	outs, errs = proc.communicate()
+	exitcode = proc.poll()
+
+	return exitcode, bwa_cmd, errs
+
+def print_message( msg, silent, start):
+	if not silent:
+		sys.stderr.write( "[%s] %s\n" % (timeSpend(start), msg) )
 
 if __name__ == '__main__':
 	argvs    = parse_params( __version__ )
-	start    = time.time()
+	begin_t  = time.time()
 	numlines = 10000
 	sam_fp   = argvs.sam[0] if argvs.sam else ""
 	samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
 	logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
 
-	sys.stderr.write( "[%s] Starting GOTTCHA (v%s)\n" % (timeSpend(start), __version__) )
+	print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t )
+
+	#dependency check
+	if sys.version_info < (3,0):
+		sys.exit("[ERROR] Python 3.0 or above is required.")
+
+	if not dependency_check("bwa"):
+		sys.exit("[ERROR] Executable bwa not found.")
 
 	#prepare output object
 	out_fp = sys.stdout
 	outfile = "STDOUT"
 	if not argvs.stdout:
-		ext = "fastq" if argvs.mode == "reads" else "tsv"
+		#create output directory if not exists
+		if not os.path.exists(argvs.outdir):
+			os.makedirs(argvs.outdir)
+		ext = "fastq" if argvs.mode == "extract" else "tsv"
 		tg_taxid = argvs.taxonomy if argvs.taxonomy else ""
 		outfile = "%s/%s.%s%s.%s" % ( argvs.outdir, argvs.prefix, argvs.mode, tg_taxid, ext)
 		out_fp = open( outfile, 'w')
 
-	verbose_msg = """[%s] Arguments checked:
-           Input reads    : %s
-           Input SAM file : %s
-           Database       : %s
-           Database level : %s
-           Output path    : %s
-           Prefix         : %s
-           Mode           : %s
-           Specific taxid : %s
-           Threads        : %d
-           Minimal L_DOC  : %s
-           Minimal L_LEN  : %s
-           Minimal reads  : %s\n""" % (
-		timeSpend(start), argvs.input, samfile, argvs.database, argvs.dbLevel,
-		argvs.outdir, argvs.prefix, argvs.mode, argvs.taxonomy, argvs.threads, argvs.minCov, argvs.minLen, argvs.minReads
-	) if argvs.verbose else ""
-	sys.stderr.write( verbose_msg )
+	print_message( "Arguments and dependencies checked:", argvs.silent, begin_t )
+	print_message( "    Input reads      : %s" % argvs.input,     argvs.silent, begin_t )
+	print_message( "    Input SAM file   : %s" % samfile,         argvs.silent, begin_t )
+	print_message( "    Database         : %s" % argvs.database,  argvs.silent, begin_t )
+	print_message( "    Database level   : %s" % argvs.dbLevel,   argvs.silent, begin_t )
+	print_message( "    Mismatch penalty : %s" % argvs.mismatch,  argvs.silent, begin_t )
+	print_message( "    Abundance        : %s" % argvs.relAbu,    argvs.silent, begin_t )
+	print_message( "    Output path      : %s" % argvs.outdir,    argvs.silent, begin_t )
+	print_message( "    Prefix           : %s" % argvs.prefix,    argvs.silent, begin_t )
+	print_message( "    Mode             : %s" % argvs.mode,      argvs.silent, begin_t )
+	print_message( "    Specific taxid   : %s" % argvs.taxonomy,  argvs.silent, begin_t )
+	print_message( "    Threads          : %d" % argvs.threads,   argvs.silent, begin_t )
+	print_message( "    Minimal L_DOC    : %s" % argvs.minCov,    argvs.silent, begin_t )
+	print_message( "    Minimal L_LEN    : %s" % argvs.minLen,    argvs.silent, begin_t )
+	print_message( "    Minimal reads    : %s" % argvs.minReads,  argvs.silent, begin_t )
+	print_message( "    BWA path         : %s" % dependency_check("bwa"),       argvs.silent, begin_t )
+	#print_message( "    SAMTOOLS path    : %s" % dependency_check("samtools"),  argvs.silent, begin_t )
 
 	#load taxonomy
-	gt.loadTaxonomy()
-	verbose_msg = "[%s] Taxonomy information loaded.\n" % timeSpend(start) if argvs.verbose else ""
-	sys.stderr.write( verbose_msg )
+	print_message( "Loading taxonomy information...", argvs.silent, begin_t )
+	gt.loadTaxonomy( argvs.taxInfo )
+	print_message( "Done.", argvs.silent, begin_t )
 
-	#load strain
-	gt.loadStrainName()
-	verbose_msg = "[%s] Non-standard groups/strains information loaded.\n" % timeSpend(start) if argvs.verbose else ""
-	sys.stderr.write( verbose_msg )
+	#load user-defined strain name
+	#if os.path.isfile( argvs.database + ".list" ):
+	#	print_message( "Loading non-standard groups/strains information...",  argvs.silent, begin_t )
+	#	gt.loadStrainName( argvs.database + ".list" )
+	#	print_message( "Done",  argvs.silent, begin_t )
 
 	if argvs.input:
-		verbose_msg = "[%s] Running read-mapping...\n" % timeSpend(start) if argvs.verbose else ""
-		sys.stderr.write( verbose_msg )
-		exitcode, cmd = readMapping( argvs.input, argvs.database, argvs.threads, argvs.mismatch, samfile, logfile )
-		verbose_msg  = "[%s] Logfile saved to %s.\n" % (timeSpend(start), logfile) if argvs.verbose else ""
-		verbose_msg += "[%s] COMMAND: %s\n" % (timeSpend(start), cmd) if argvs.verbose else ""
-		sys.stderr.write( verbose_msg )
+		print_message( "Running read-mapping...", argvs.silent, begin_t )
+		exitcode, cmd, msg = readMapping( argvs.input, argvs.database, argvs.threads, argvs.mismatch, samfile, logfile )
+		print_message( "Logfile saved to %s." % logfile, argvs.silent, begin_t )
+		#print_message( "COMMAND: %s" % cmd, argvs.silent, begin_t )
 
-		if exitcode:
-			sys.exit( "[%s] ERROR: error occurred while running read mapping (exit code: %s).\n" % (timeSpend(start), exitcode) )
+		if exitcode != 0:
+			sys.exit( "[%s] ERROR: error occurred while running read mapping (exit: %s, message: %s).\n" % (timeSpend(begin_t), exitcode, msg) )
 		else:
-			sys.stderr.write( "[%s] Done mapping reads to %s signature database.\n" % (timeSpend(start), argvs.dbLevel) )
+			print_message( "Done mapping reads to %s signature database." % argvs.dbLevel, argvs.silent, begin_t )
+			print_message( "Mapped SAM file saved to %s." % samfile, argvs.silent, begin_t )
 			sam_fp = open( samfile, "r" )
 
 	if argvs.mode == 'class':
 		processSAMfileReadClass( sam_fp, out_fp, argvs.dbLevel, argvs.taxonomy )
-		sys.stderr.write( "[%s] Done classifying reads. Results printed to %s.\n" % (timeSpend(start), outfile) )
+		print_message( "Done classifying reads. Results printed to %s." % outfile, argvs.silent, begin_t )
 
 	elif argvs.mode == 'extract':
 		processSAMfileReadExtract( sam_fp, out_fp, argvs.taxonomy )
-		sys.stderr.write( "[%s] Done extracting reads to %s.\n" % timeSpend(start), outfile )
+		print_message( "Done extracting reads to %s." % outfile, argvs.silent, begin_t )
 
 	else:
 		(res, mapped_r_cnt) = processSAMfile( sam_fp, argvs.threads, numlines)
-		sys.stderr.write( "[%s] Done processing SAM file. %s reads mapped.\n" % (timeSpend(start), mapped_r_cnt) )
+		print_message( "Done processing SAM file. %s reads mapped." % mapped_r_cnt, argvs.silent, begin_t )
 
 		(res_rollup, res_tree) = taxonomyRollUp( res )
-		sys.stderr.write( "[%s] Done taxonomy rolling up.\n" % timeSpend(start) )
+		print_message( "Done taxonomy rolling up.", argvs.silent, begin_t )
 
 		if argvs.mode == 'summary' or argvs.mode == 'full':
 			outputResultsAsRanks( res_rollup, out_fp, argvs.dbLevel, argvs.relAbu, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen )
 		elif argvs.mode == 'tree':
-			outputResultsAsTree( "1", res_tree, res_rollup, "", argvs.taxonomy, out_fp, argvs.minCov, argvs.minReads, argvs.minLen )
+			outputResultsAsTree( "1", res_tree, res_rollup, "", argvs.dbLevel, 0, argvs.taxonomy, out_fp, argvs.minCov, argvs.minReads, argvs.minLen )
+		elif argvs.mode == 'lineage':
+			outputResultsAsLineage( res_rollup, out_fp, argvs.dbLevel, argvs.relAbu, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen )
 
-		sys.stderr.write( "[%s] Done taxonomy preofiling; %s results printed to %s.\n" % (timeSpend(start), argvs.mode, outfile) )
+		print_message( "Done taxonomy profiling; %s results printed to %s." % (argvs.mode, outfile), argvs.silent, begin_t )
+
