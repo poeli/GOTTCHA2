@@ -66,6 +66,7 @@ You can specify one of the following output modes:
 * "class" : output results of classified reads;
 * "extract" : extract mapped reads; Note that only results/reads belongs to descendants of
 TAXID will be reported/extracted if option [--taxonomy TAXID] is specified. [default: summary]
+
 ```
 -x [TAXID], --taxonomy [TAXID]
 ```
