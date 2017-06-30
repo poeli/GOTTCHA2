@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1 BETA"
+__version__   = "2.1.1 BETA"
 __date__      = "2016/05/31"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -136,13 +136,10 @@ def parse_params( ver ):
 	if not args_parsed.taxInfo:
 		if args_parsed.database:
 			db_dir = search( '^(.*?)[^\/]+$', args_parsed.database )
-			args_parsed.taxInfo = db_dir.group(1) + "taxonomy.tsv"
+			args_parsed.taxInfo = db_dir.group(1)
 		else:
 			bin_dir = os.path.dirname(os.path.realpath(__file__))
-			args_parsed.taxInfo = bin_dir + "/database/taxonomy.tsv"
-
-	if not os.path.isfile( args_parsed.taxInfo ):
-		p.error( 'Taxonomy information (taxonomy.tsv) not found.' )
+			args_parsed.taxInfo = bin_dir + "/database"
 
 	if not args_parsed.prefix:
 		if args_parsed.input:
@@ -177,20 +174,23 @@ def dependency_check(cmd):
 	outs, errs = proc.communicate()
 	return outs.decode().rstrip() if proc.returncode == 0 else False
 
-def join_ranges(data, offset=0):
-	"""
-	Merge location regions
-	"""
-	flatten = chain.from_iterable
-	LEFT, RIGHT = 1, -1
-	data = sorted(flatten(((start, LEFT), (stop + offset, RIGHT)) for start, stop in data))
-	c = 0
-	for value, label in data:
-		if c == 0:
-			x = value
-		c += label
-		if c == 0:
-			yield [x, value - offset]
+def join_ranges(intervals):
+	sorted_by_lower_bound = sorted(intervals, key=lambda tup: tup[0])
+	merged = []
+	
+	for higher in sorted_by_lower_bound:
+	    if not merged:
+	        merged.append(higher)
+	    else:
+	        lower = merged[-1]
+	        # test for intersection between lower and higher:
+	        # we know via sorting that lower[0] <= higher[0]
+	        if higher[0] <= lower[1]:
+	            upper_bound = max(lower[1], higher[1])
+	            merged[-1] = [lower[0], upper_bound]  # replace by merged interval
+	        else:
+	            merged.append(higher)
+	return merged
 
 def worker(lines):
 	"""Make a dict out of the parsed, supplied lines"""
@@ -199,7 +199,7 @@ def worker(lines):
 	for line in lines:
 		k, r, n, rd, rs, rq, flag, cigr = parse(line)
 		if k in res:
-			res[k]["ML"] = list( join_ranges( res[k]["ML"] + [r] ) )
+			res[k]["ML"] = join_ranges( res[k]["ML"] + [r] )
 			res[k]["MB"] += r[1] - r[0] + 1
 			res[k]["MR"] += 1
 			res[k]["NM"] += n
@@ -247,7 +247,7 @@ def processSAMfile( sam_fp, numthreads, numlines ):
 		for res in result_list:
 			for k in res:
 				if k in result:
-					result[k]["ML"] = list( join_ranges( result[k]["ML"] + res[k]["ML"] ) )
+					result[k]["ML"] = join_ranges( result[k]["ML"] + res[k]["ML"] )
 					result[k]["MB"] += res[k]["MB"]
 					result[k]["MR"] += res[k]["MR"]
 					result[k]["NM"] += res[k]["NM"]
@@ -314,34 +314,55 @@ def seqReverseComplement( seq ):
 	seq_dict = { seq1[i]:seq1[i+16] for i in range(64) if i < 16 or 32<=i<48 }
 	return "".join([seq_dict[base] for base in reversed(seq)])
 
-def taxonomyRollUp( r ):
+def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 	"""
 	Take parsed SAM output and rollup to superkingdoms
 	"""
+	res_rollup_str = gt._autoVivification()
 	res_rollup = gt._autoVivification()
 	res_tree = gt._autoVivification()
 
+	# rollup to strain first
 	for ref in r:
-		(acc, start, stop, t) = ref.split('|')
+		(acc, start, stop, tid) = ref.split('|')
+		if tid in res_rollup_str:
+			res_rollup_str[tid]["ML"] += ";%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
+			res_rollup_str[tid]["MB"] += r[ref]["MB"]
+			res_rollup_str[tid]["MR"] += r[ref]["MR"]
+			res_rollup_str[tid]["NM"] += r[ref]["NM"]
+			res_rollup_str[tid]["LL"] += r[ref]["LL"]
+			res_rollup_str[tid]["SL"] += int(stop) - int(start) + 1
+		else:
+			res_rollup_str[tid]["ML"] = "%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
+			res_rollup_str[tid]["MB"] = r[ref]["MB"]
+			res_rollup_str[tid]["MR"] = r[ref]["MR"]
+			res_rollup_str[tid]["NM"] = r[ref]["NM"]
+			res_rollup_str[tid]["LL"] = r[ref]["LL"]
+			res_rollup_str[tid]["SL"] = int(stop) - int(start) + 1
 
+	# apply cutoffs strain level and rollup to higher levels		
+	for t in res_rollup_str:
 		tree = gt.taxid2fullLinkDict( t )
 
+		if mc > res_rollup_str[t]["LL"]/db_stats[t] or mr > res_rollup_str[t]["MR"] or ml > res_rollup_str[t]["LL"]:
+		   continue
+		
 		for pid, tid in tree.items():
 			res_tree[pid][tid] = 1
 			if tid in res_rollup:
-				res_rollup[tid]["ML"] += ";%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
-				res_rollup[tid]["MB"] += r[ref]["MB"]
-				res_rollup[tid]["MR"] += r[ref]["MR"]
-				res_rollup[tid]["NM"] += r[ref]["NM"]
-				res_rollup[tid]["LL"] += r[ref]["LL"]
-				res_rollup[tid]["SL"] += int(stop) - int(start) + 1
+				res_rollup[tid]["ML"] += ";%s" % res_rollup_str[t]["ML"]
+				res_rollup[tid]["MB"] += res_rollup_str[t]["MB"]  
+				res_rollup[tid]["MR"] += res_rollup_str[t]["MR"]
+				res_rollup[tid]["NM"] += res_rollup_str[t]["NM"]
+				res_rollup[tid]["LL"] += res_rollup_str[t]["LL"]
+				res_rollup[tid]["SL"] += res_rollup_str[t]["SL"]
 			else:
-				res_rollup[tid]["ML"] = "%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
-				res_rollup[tid]["MB"] = r[ref]["MB"]
-				res_rollup[tid]["MR"] = r[ref]["MR"]
-				res_rollup[tid]["NM"] = r[ref]["NM"]
-				res_rollup[tid]["LL"] = r[ref]["LL"]
-				res_rollup[tid]["SL"] = int(stop) - int(start) + 1
+				res_rollup[tid]["ML"] = res_rollup_str[t]["ML"]
+				res_rollup[tid]["MB"] = res_rollup_str[t]["MB"]  
+				res_rollup[tid]["MR"] = res_rollup_str[t]["MR"]
+				res_rollup[tid]["NM"] = res_rollup_str[t]["NM"]
+				res_rollup[tid]["LL"] = res_rollup_str[t]["LL"]
+				res_rollup[tid]["SL"] = res_rollup_str[t]["SL"]
 
 	return res_rollup, res_tree
 
@@ -488,6 +509,34 @@ def readMapping( reads, db, threads, mm_penalty, samfile, logfile ):
 
 	return exitcode, bwa_cmd, errs
 
+def loadDatabaseStats( db_stats_file ):
+	"""
+	loading database stats from db_path.stats
+
+	The input stats file is a 8 column tab delimited text file:
+	1. Rank
+	2. Name
+	3. Taxid
+	4. Superkingdom
+	5. NumOfSeq
+	6. Max
+	7. Min
+	8. TotalLength
+
+	We will only save stain level info with their taxid (2) and total signature length (8).
+	"""
+	db_stats = {}
+
+	with open(db_stats_file) as f:
+		for line in f:
+			fields = line.split("\t")
+			if fields[0] == "strain":
+				db_stats[fields[2]] = int(fields[7])
+			else:
+				continue
+
+	return db_stats
+
 def print_message( msg, silent, start):
 	if not silent:
 		sys.stderr.write( "[%s] %s\n" % (timeSpend(start), msg) )
@@ -537,18 +586,19 @@ if __name__ == '__main__':
 	print_message( "    Minimal L_LEN    : %s" % argvs.minLen,    argvs.silent, begin_t )
 	print_message( "    Minimal reads    : %s" % argvs.minReads,  argvs.silent, begin_t )
 	print_message( "    BWA path         : %s" % dependency_check("bwa"),       argvs.silent, begin_t )
-	#print_message( "    SAMTOOLS path    : %s" % dependency_check("samtools"),  argvs.silent, begin_t )
 
 	#load taxonomy
 	print_message( "Loading taxonomy information...", argvs.silent, begin_t )
 	gt.loadTaxonomy( argvs.taxInfo )
 	print_message( "Done.", argvs.silent, begin_t )
 
-	#load user-defined strain name
-	#if os.path.isfile( argvs.database + ".list" ):
-	#	print_message( "Loading non-standard groups/strains information...",  argvs.silent, begin_t )
-	#	gt.loadStrainName( argvs.database + ".list" )
-	#	print_message( "Done",  argvs.silent, begin_t )
+	#load database stats
+	print_message( "Loading database stats...", argvs.silent, begin_t )
+	if os.path.isfile( argvs.database + ".stats" ):
+		db_stats = loadDatabaseStats( argvs.database + ".stats" )
+	else:
+		sys.exit( "[%s] ERROR: %s not found.\n" % (timeSpend(begin_t), argvs.database+".stats") )
+	print_message( "Done.", argvs.silent, begin_t )
 
 	if argvs.input:
 		print_message( "Running read-mapping...", argvs.silent, begin_t )
@@ -575,7 +625,7 @@ if __name__ == '__main__':
 		(res, mapped_r_cnt) = processSAMfile( sam_fp, argvs.threads, numlines)
 		print_message( "Done processing SAM file. %s reads mapped." % mapped_r_cnt, argvs.silent, begin_t )
 
-		(res_rollup, res_tree) = taxonomyRollUp( res )
+		(res_rollup, res_tree) = taxonomyRollUp( res, db_stats, argvs.minCov, argvs.minReads, argvs.minLen )
 		print_message( "Done taxonomy rolling up.", argvs.silent, begin_t )
 
 		if argvs.mode == 'summary' or argvs.mode == 'full':

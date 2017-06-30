@@ -6,8 +6,12 @@
 # Last update: 05/15/2016
 
 import sys
+import io
 import os.path
 import json
+import gzip
+import subprocess
+import fileinput
 
 ####################
 # Global variables #
@@ -22,18 +26,74 @@ taxParents = {}
 taxRanks   = {}
 taxNames   = {}
 taxLeaves  = {}
+accTid     = {}
+tidLineage = {}
+tidLineageDict = {}
 
 ####################
 #      Methods     #
 ####################
 
+def acc2taxid( acc ):
+	_checkTaxonomy()
+	accession2taxid_file=taxonomyDir+"/accession2taxid.tsv"
+	#remove version number#
+	acc = acc.split('.')[0]
+
+	if not acc in accTid:
+		with open( accession2taxid_file ) as f:
+			f.seek(0, 2)
+			start = 0
+			end = f.tell()
+			accCur = ""
+			
+			if DEBUG: sys.stderr.write( "[INFO] acc2taxid from file: %s\n" % accession2taxid_file )
+			
+			while( acc != accCur and start < end ):
+				
+				posNew = (end+start)/2
+				
+				f.seek( posNew )
+		
+				if posNew != start: f.readline()
+
+				line = f.readline()	
+				
+				if DEBUG: sys.stderr.write( "[INFO] start: %15d, posNew: %15d, end: %15d, line: %s" % (start, posNew, end, line) )
+				if line :
+					(accNew, tid) = line.split('\t')
+				else:
+					break
+
+				if acc > accNew and accCur != accNew and accNew:
+					if accNew: posNew = f.tell()
+					start = posNew
+					if start >= end: end = start+1
+				else:
+					end = posNew
+				
+				accCur = accNew
+
+			f.close()
+
+			if accCur == acc:
+				accTid[acc] = tid.strip()
+			else:
+				accTid[acc] = ""
+
+	return accTid[acc]
+
 def taxid2rank( taxID ):
-	_checkTaxonomy();
+	_checkTaxonomy()
 	return getTaxRank(taxID)
 
 def taxid2name( taxID ):
 	_checkTaxonomy()
 	return getTaxName(taxID)
+
+def taxid2depth( taxID ):
+	_checkTaxonomy()
+	return getTaxDepth(taxID)
 
 def taxid2nameOnRank( taxID, r ):
 	_checkTaxonomy()
@@ -84,7 +144,7 @@ def taxid2fullLineage( taxID ):
 	_checkTaxonomy()
 	fullLineage = ""
 
-	while int(taxID) > 1:
+	while taxID != '1':
 		rank = getTaxRank(taxID)
 		name = getTaxName(taxID)
 		if not name: break
@@ -98,7 +158,7 @@ def taxid2fullLinkDict( taxID ):
 	fullLineage = ""
 	link = {}
 
-	while int(taxID) > 1:
+	while taxID != '1':
 		rank = getTaxRank(taxID)
 		name = getTaxName(taxID)
 		if not name: break
@@ -117,6 +177,11 @@ def taxid2lineageDICT( tid, print_all_rank=1, print_strain=0, replace_space2unde
 
 def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, output_type):
 	_checkTaxonomy()
+
+	if output_type == "DICT":
+		if tid in tidLineageDict: return tidLineageDict[tid]
+	else:
+		if tid in tidLineage: return tidLineage[tid]
 
 	info = _autoVivification()
 	lineage = []
@@ -150,6 +215,7 @@ def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, 
 	}
 
 	rank = getTaxRank(taxID)
+	orig_rank = rank
 	name = getTaxName(taxID)
 	str_name = name
 	if replace_space2underscore: str_name.replace(" ", "_")
@@ -192,27 +258,31 @@ def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, 
 	lineage.reverse()
 
 	if print_strain:
-		lineage.append( "n__%s"%(str_name) )
-		info["strain"]["name"]  = str_name
-		info["strain"]["taxid"] = tid
+		if not orig_rank in major_level:
+			#lineage.append( "n__%s"%(str_name) )
+			lineage.append( "%s"%(str_name) )
+			info["strain"]["name"]  = str_name
+			info["strain"]["taxid"] = tid
 
 	if output_type == "DICT":
+		tidLineageDict[tid] = info
 		return info
 	else:
+		tidLineage[tid] = "|".join(lineage)
 		return "|".join(lineage)
-
-def loadStrainName():
-	return ""
 
 def getTaxDepth( taxID ):
 	return taxDepths[taxID]
 
 def getTaxName( taxID ):
-	return taxNames[taxID]
+	if taxID in taxNames:
+		return taxNames[taxID]
+	else:
+		return "unknown"
 
 def getTaxParent( taxID ):
 	taxID = taxParents[taxID]
-	while int(taxID) > 1 and taxRanks[taxID] == 'no rank':
+	while taxID != '1' and taxRanks[taxID] == 'no rank':
 		taxID = taxParents[taxID]
 
 	return taxID
@@ -222,7 +292,7 @@ def getTaxType( taxID ):
 	lastID = taxID
 	taxID = taxParents[taxID]
 
-	while int(taxID) > 1 and taxRanks[taxID] != 'species':
+	while taxID != '1' and taxRanks[taxID] != 'species':
 		lastID = taxID
 		taxID = taxParents[taxID]
 
@@ -235,16 +305,69 @@ def getTaxType( taxID ):
 	return taxID
 
 def getTaxRank( taxID, guess_strain=True ):
+	if not taxID in taxRanks:
+		return "unknown"
+
 	if taxRanks[taxID] == "no rank" and taxidIsLeaf(taxID) and guess_strain:
 		return "strain"
 	else:
 		return taxRanks[taxID]
 
-def loadTaxonomy( taxonomy_file = taxonomyDir+"/taxonomy.tsv", custom_taxonomy_file=""):
-	if DEBUG: sys.stderr.write( "[INFO] Open taxonomy file: %s\n"%(taxonomy_file) )
+#def loadStrainName( custom_taxonomy_file ):
+#	try:
+#		with open(custom_taxonomy_file, 'r') as f:
+#			for line in f:
+#				temp = line.rstrip('\r\n').split('\t')
+#				tid = temp[4]
+#				if "." in tid:
+#					parent, sid = tid.split('.')
+#					if not parent in taxNames: continue
+#					taxParents[tid] = parent
+#					taxDepths[tid] = str(int(taxDepths[parent]) + 1)
+#					taxRanks[tid] = "no rank"
+#					taxNames[tid] = temp[0]
+#					taxLeaves[tid] = 1
+#					if parent in taxLeaves: del taxLeaves[parent]
+#		f.close()
+#	except IOError:
+#		_die( "Failed to open custom taxonomy file: %s.\n" % custom_taxonomy_file )
+
+def loadRefSeqCatelog( refseq_catelog_file, seq_type="nc" ):
+	try:
+		if refseq_catelog_file.endswith(".gz"):
+			#p = subprocess.Popen(["zcat", refseq_catelog_file], stdout = subprocess.PIPE)
+			#f = io.StringIO(p.communicate()[0])
+			#assert p.returncode == 0
+			f = gzip.open( refseq_catelog_file, 'r' )
+		else:
+			f = open( refseq_catelog_file, 'r' )
+
+		for line in f:
+			temp = line.rstrip('\r\n').split('\t')
+			acc = temp[2]
+			if seq_type == "nc" and ( acc[1] == "P" or acc.startswith("NM_") or acc.startswith("NR_") or acc.startswith("XM_") or acc.startswith("XR_") ):
+				continue
+			else:
+				accTid[acc] = temp[0]
+
+		f.close()
+	except IOError:
+		_die( "Failed to open custom RefSeq catelog file: %s.\n" % refseq_catelog_file )
+
+def loadTaxonomy( dbpath=taxonomyDir ):
+	global taxonomyDir
+	taxonomyDir = dbpath
+	taxonomy_file = taxonomyDir+"/taxonomy.tsv"
+	cus_taxonomy_file = taxonomyDir+"/taxonomy.custom.tsv"
+
+	if DEBUG: sys.stderr.write( "[INFO] Open taxonomy file: %s\n"% taxonomy_file )
+	if DEBUG: sys.stderr.write( "[INFO] Open custom taxonomy file: %s\n"% taxonomy_file )
 
 	try:
-		with open(taxonomy_file, 'r') as f:
+		taxfiles = []
+		if os.path.isfile( taxonomy_file ):     taxfiles.append(taxonomy_file)
+		if os.path.isfile( cus_taxonomy_file ): taxfiles.append(cus_taxonomy_file)
+		with fileinput.input( files=taxfiles ) as f:
 			for line in f:
 				tid, depth, parent, rank, name = line.rstrip('\r\n').split('\t')
 				taxParents[tid] = parent
@@ -256,21 +379,6 @@ def loadTaxonomy( taxonomy_file = taxonomyDir+"/taxonomy.tsv", custom_taxonomy_f
 			f.close()
 	except IOError:
 		_die( "Failed to open taxonomy file: %s.\n" % taxonomy_file )
-
-	if custom_taxonomy_file:
-		try:
-			with open(custom_taxonomy_file, 'r') as f:
-				for line in f:
-					tid, name = line.rstrip('\r\n').split('\t')
-					if "." in t:
-						parent, sid = tid.split('.')
-						taxParents[tid] = parent
-						taxRanks[tid] = "strain"
-						taxNames[tid] = name
-						taxLeaves[tid] = 1;
-				f.close()
-		except IOError:
-			_die( "Failed to open custom taxonomy file: %s.\n" % custom_taxonomy_file )
 
 	if DEBUG: sys.stderr.write( "[INFO] Done parsing taxonomy.tab (%d taxons loaded)\n" % len(taxParents) )
 
@@ -299,16 +407,31 @@ def _checkTaxonomy():
 
 if __name__ == '__main__':
 	loadTaxonomy()
-	taxid = input("Enter TaxID => ")
-	while taxid:
-		taxid.rstrip('\r\n')
-		print( "Name: %s" % taxid2name(taxid) )
-		print( "Rank: %s" % taxid2rank(taxid) )
-		print( "Is leaf: %s" % taxidIsLeaf(taxid) )
-		print( "Gneus: %s" % taxid2nameOnRank(taxid, "genus") )
-		print( "Gneus TaxID: %s" % taxid2taxidOnRank(taxid, "genus") )
-		print( "Lineage: %s\n" % taxid2lineage(taxid) )
-		print( "LineageJSON: %s\n" % taxid2lineageJSON(taxid) )
-		print( "Full lineage: %s\n" % taxid2fullLineage(taxid) )
-		print( taxid2fullLinkDict(taxid) )
-		taxid = input("Enter TaxID => ")
+	inid = input("Enter # => ")
+
+	while inid:
+		inid = inid.rstrip('\r\n')
+
+		if inid[0] in "1234567890":
+			taxid = inid
+		else:
+			taxid = acc2taxid( inid )
+			print( "acc2taxid( %s ) => %s"   % (inid, taxid) )
+
+		if taxid:
+			print( "taxid2name( %s )  => %s" % (taxid, taxid2name(taxid)) )
+			print( "taxid2rank( %s )  => %s" % (taxid, taxid2rank(taxid)) )
+			print( "taxidIsLeaf( %s ) => %s" % (taxid, taxidIsLeaf(taxid)) )
+			print( "taxid2nameOnRank( %s, 'genus')   => %s" % (taxid, taxid2nameOnRank(taxid, "genus")) )
+			print( "taxid2taxidOnRank( %s, 'genus')  => %s" % (taxid, taxid2taxidOnRank(taxid, "genus")) )
+			print( "taxid2nameOnRank( %s, 'phylum')  => %s" % (taxid, taxid2nameOnRank(taxid, "phylum")) )
+			print( "taxid2taxidOnRank( %s, 'phylum') => %s" % (taxid, taxid2taxidOnRank(taxid, "phylum")) )
+			print( "\n" )
+			print( "taxid2lineage( %s )      => %s\n" %      (taxid, taxid2lineage(taxid)) )
+			print( "taxid2lineageDICT( %s )  => %s\n" %      (taxid, taxid2lineageDICT(taxid)) )
+			print( "taxid2fullLineage( %s )  => %s\n" %      (taxid, taxid2fullLineage(taxid)) )
+			print( "taxid2fullLinkDict( %s ) => %s\n" %      (taxid, taxid2fullLinkDict(taxid)) )
+		else:
+			print( "No taxid found.\n" )
+
+		inid = input("Enter acc# => ")
