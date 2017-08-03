@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.1 BETA"
+__version__   = "2.2.0 BETA"
 __date__      = "2016/05/31"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -530,7 +530,7 @@ def loadDatabaseStats( db_stats_file ):
 	with open(db_stats_file) as f:
 		for line in f:
 			fields = line.split("\t")
-			if fields[0] == "strain":
+			if fields[0] == "species" or fields[0] == "strain":
 				db_stats[fields[2]] = int(fields[7])
 			else:
 				continue
