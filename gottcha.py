@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.2.0 BETA"
+__version__   = "2.2.1 BETA"
 __date__      = "2016/05/31"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -326,6 +326,12 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 	for ref in r:
 		(acc, start, stop, tid) = ref.split('|')
 		if tid in res_rollup_str:
+			# ML: mapped region
+			# MB: # of mapped bases
+			# MR: # of mapped reads
+			# NM: # of mismatches
+			# LL: linear length
+			# SL: length of signature fragments
 			res_rollup_str[tid]["ML"] += ";%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
 			res_rollup_str[tid]["MB"] += r[ref]["MB"]
 			res_rollup_str[tid]["MR"] += r[ref]["MR"]
@@ -344,25 +350,35 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 	for t in res_rollup_str:
 		tree = gt.taxid2fullLinkDict( t )
 
+		# calculate DOC and LC for strains
+		res_rollup_str[t]["bDOC"] = res_rollup_str[t]["MB"]/db_stats[t]
+		res_rollup_str[t]["bLC"]  = res_rollup_str[t]["LL"]/db_stats[t]
+
 		if mc > res_rollup_str[t]["LL"]/db_stats[t] or mr > res_rollup_str[t]["MR"] or ml > res_rollup_str[t]["LL"]:
 		   continue
 		
 		for pid, tid in tree.items():
 			res_tree[pid][tid] = 1
 			if tid in res_rollup:
-				res_rollup[tid]["ML"] += ";%s" % res_rollup_str[t]["ML"]
-				res_rollup[tid]["MB"] += res_rollup_str[t]["MB"]  
-				res_rollup[tid]["MR"] += res_rollup_str[t]["MR"]
-				res_rollup[tid]["NM"] += res_rollup_str[t]["NM"]
-				res_rollup[tid]["LL"] += res_rollup_str[t]["LL"]
-				res_rollup[tid]["SL"] += res_rollup_str[t]["SL"]
+				# bDOC: best Depth of Coverage of a strain
+				# bLC:  best linear coverage of a strain
+				res_rollup[tid]["ML"]   += ";%s" % res_rollup_str[t]["ML"]
+				res_rollup[tid]["MB"]   += res_rollup_str[t]["MB"]  
+				res_rollup[tid]["MR"]   += res_rollup_str[t]["MR"]
+				res_rollup[tid]["NM"]   += res_rollup_str[t]["NM"]
+				res_rollup[tid]["LL"]   += res_rollup_str[t]["LL"]
+				res_rollup[tid]["SL"]   += res_rollup_str[t]["SL"]
+				res_rollup[tid]["bDOC"] = res_rollup_str[t]["bDOC"] if res_rollup_str[t]["bDOC"] > res_rollup[tid]["bDOC"] else res_rollup[tid]["bDOC"]
+				res_rollup[tid]["bLC"]  = res_rollup_str[t]["bLC"] if res_rollup_str[t]["bLC"] > res_rollup[tid]["bLC"] else res_rollup[tid]["bLC"]
 			else:
-				res_rollup[tid]["ML"] = res_rollup_str[t]["ML"]
-				res_rollup[tid]["MB"] = res_rollup_str[t]["MB"]  
-				res_rollup[tid]["MR"] = res_rollup_str[t]["MR"]
-				res_rollup[tid]["NM"] = res_rollup_str[t]["NM"]
-				res_rollup[tid]["LL"] = res_rollup_str[t]["LL"]
-				res_rollup[tid]["SL"] = res_rollup_str[t]["SL"]
+				res_rollup[tid]["ML"]   = res_rollup_str[t]["ML"]
+				res_rollup[tid]["MB"]   = res_rollup_str[t]["MB"]  
+				res_rollup[tid]["MR"]   = res_rollup_str[t]["MR"]
+				res_rollup[tid]["NM"]   = res_rollup_str[t]["NM"]
+				res_rollup[tid]["LL"]   = res_rollup_str[t]["LL"]
+				res_rollup[tid]["SL"]   = res_rollup_str[t]["SL"]
+				res_rollup[tid]["bDOC"] = res_rollup_str[t]["bDOC"]
+				res_rollup[tid]["bLC"]  = res_rollup_str[t]["bLC"]
 
 	return res_rollup, res_tree
 
@@ -373,7 +389,7 @@ def outputResultsAsTree( tid, res_tree, res_rollup, indent, dbLevel, lvlFlag, ta
 	if int(tid) == 1:
 		o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % ( "", "NAME", "LEVEL", "READ_COUNT", "TOTAL_BP_MAPPED", "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_COV", "LINEAR_DOC" ) )
 	else:
-		if gt.taxid2rank(tid) == dbLevel: lvlFlag = 1
+		#if gt.taxid2rank(tid) == dbLevel: lvlFlag = 1
 		if mc <= int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"]) and mr <= int(res_rollup[tid]["MR"]) and ml <= res_rollup[tid]["LL"]:
 			o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%.4f\t%.4f\n" % (
 				indent,
@@ -395,8 +411,8 @@ def outputResultsAsTree( tid, res_tree, res_rollup, indent, dbLevel, lvlFlag, ta
 				if not isDescendant( tid, taxid_fi ):
 					continue
 
-			if lvlFlag and gt.taxid2rank(cid) != dbLevel:
-				continue
+			#if lvlFlag and gt.taxid2rank(cid) != dbLevel:
+			#	continue
 
 			if res_rollup[tid] and ( mc > int(res_rollup[tid]["LL"])/int(res_rollup[tid]["SL"]) or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]) ):
 				continue
@@ -429,9 +445,11 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 				output[rank]["TOT_ABU"] += abundance
 			else:
 				output[rank]["TOT_ABU"] = abundance
+	
+	# Field names for full mode
+	add_field = "\tBEST_DOC\tNOTE\tMAPPED_REGION" if mode == "full" else ""
 
-	add_field = "\tLINEAR_COV\tNOTE\tMAPPED_REGION" if mode == "full" else ""
-
+	# Field
 	o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s\n" %
 			( "LEVEL", "NAME", "TAXID", "READ_COUNT", "TOTAL_BP_MAPPED",
 			  "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_DOC", "REL_ABUNDANCE", add_field ) )
