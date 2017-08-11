@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.2.1 BETA"
+__version__   = "2.2.2 BETA"
 __date__      = "2016/05/31"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -74,7 +74,7 @@ def parse_params( ver ):
 	        		help="Specify a NCBI taxonomy ID. The program  will only report/extract the taxonomy you specified.")
 
 	p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='LINEAR_DOC',
-					choices=['LINEAR_LENGTH','TOTAL_BP_MAPPED','READ_COUNT','LINEAR_DOC'],
+					choices=['LINEAR_LENGTH','TOTAL_BP_MAPPED','READ_COUNT','LINEAR_DOC','COPY'],
 					help='The field will be used to calculate relative abundance. You can specify one of the following fields: "LINEAR_LENGTH", "TOTAL_BP_MAPPED", "READ_COUNT" and "LINEAR_DOC". [default: LINEAR_DOC]')
 
 	p.add_argument( '-t','--threads', metavar='<INT>', type=int, default=1,
@@ -355,6 +355,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 		# calculate DOC and LC for strains
 		res_rollup[stid]["bDOC"] = res_rollup[stid]["MB"]/db_stats[stid]
 		res_rollup[stid]["bLC"]  = res_rollup[stid]["LL"]/db_stats[stid]
+		res_rollup[stid]["CP"]   = res_rollup[stid]["MB"]/db_stats[stid]
 
 		# apply cutoffs strain level and rollup to higher levels		
 		if mc > res_rollup[stid]["LL"]/db_stats[stid] or mr > res_rollup[stid]["MR"] or ml > res_rollup[stid]["LL"]:
@@ -364,6 +365,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 
 		for pid, tid in tree.items():
 			res_tree[pid][tid] = 1
+			if tid == stid: continue # skip strain id, rollup only
 			if tid in res_rollup:
 				# bDOC: best Depth of Coverage of a strain
 				# bLC:  best linear coverage of a strain
@@ -374,6 +376,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 				res_rollup[tid]["LL"]   += res_rollup[stid]["LL"]
 				res_rollup[tid]["SL"]   += res_rollup[stid]["SL"]
 				res_rollup[tid]["TS"]   += res_rollup[stid]["TS"]
+				res_rollup[tid]["CP"]   += res_rollup[stid]["CP"]
 				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"] if res_rollup[stid]["bDOC"] > res_rollup[tid]["bDOC"] else res_rollup[tid]["bDOC"]
 				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"] if res_rollup[stid]["bLC"] > res_rollup[tid]["bLC"] else res_rollup[tid]["bLC"]
 			else:
@@ -384,6 +387,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 				res_rollup[tid]["LL"]    = res_rollup[stid]["LL"]
 				res_rollup[tid]["SL"]    = res_rollup[stid]["SL"]
 				res_rollup[tid]["TS"]    = res_rollup[stid]["TS"]
+				res_rollup[tid]["CP"]    = res_rollup[stid]["CP"]
 				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"]
 				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"]
 
@@ -393,7 +397,7 @@ def outputResultsAsTree( tid, res_tree, res_rollup, indent, dbLevel, lvlFlag, ta
 	"""
 	iterate taxonomy tree and print results recursively
 	"""
-	if int(tid) == 1:
+	if tid == '1':
 		o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % ( "", "NAME", "LEVEL", "READ_COUNT", "TOTAL_BP_MAPPED", "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_COV", "LINEAR_DOC" ) )
 	else:
 		#if gt.taxid2rank(tid) == dbLevel: lvlFlag = 1
@@ -443,6 +447,8 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 					abundance = int(res_rollup[tid]["MB"])
 				elif relAbu == "READ_COUNT":
 					abundance = int(res_rollup[tid]["MR"])
+				elif relAbu == "COPY":
+					abundance = int(res_rollup[tid]["CP"])
 				else:
 					abundance = int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"])
 
@@ -458,9 +464,11 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 			"LINEAR_COV",
 			"LINEAR_COV_MAPPED_SIG",
 			"BEST_LINEAR_COV",
+			"DOC",
 			"BEST_DOC",
 			"MAPPED_SIG_LENGTH",
 			"TOL_SIG_LENGTH",
+			"COPY",
 			"ABUNDANCE",
 			"NOTE"
 			]) if mode == "full" else ""
@@ -476,6 +484,8 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 		
 		taxas = output[rank]["RES"]
 		for tid in sorted( taxas, key=taxas.__getitem__, reverse=True):
+			# skip "cellular organisms" 131567
+
 			note = ""
 			note += "Filtered out (minCov > %.2f); "%(res_rollup[tid]["LL"]/db_stats[tid]) if rank == "strain" and tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid] else ""
 			note += "Filtered out (minReads > %s); "%res_rollup[tid]["MR"] if mr > int(res_rollup[tid]["MR"]) else ""
@@ -483,13 +493,15 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 			note += "Hidden (Biased result); " if major_ranks[rank] > major_ranks[tg_rank] else ""
 
 			# additional fileds for full mode
-			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%s" % (
+			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%.2f\t%s" % (
 			    res_rollup[tid]["LL"]/res_rollup[tid]["TS"],
 			    res_rollup[tid]["LL"]/res_rollup[tid]["SL"],
 			    res_rollup[tid]["bLC"],
+				int(res_rollup[tid]["MB"])/int(res_rollup[tid]["TS"]),
 			    res_rollup[tid]["bDOC"],
 			    res_rollup[tid]["SL"],
 			    res_rollup[tid]["TS"],
+				res_rollup[tid]["CP"],
 			    output[rank]["RES"][tid],
 			    note,
 			    #res_rollup[tid]["ML"]

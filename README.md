@@ -18,6 +18,32 @@ GOTTCHAv2 is currently under development in ALPHA stage. Databases for v1 will n
 Python 3.0+ is required. Linux (2.6 kernel or later) or Mac (OSX 10.6 Snow Leopard or later) operating system with minimal 8 GB of RAM is recommended.
 
 -------------------------------------------------------------------
+## RESULT
+GOTTCHA reports profiling results in plain text table (*.gottcha.tsv) by default. The tsv file will list the organism(s) at all taxonomic levels from STRAIN to PHYLUM, following by other information listed below. The linear depth of coverage (LINEAR_DOC) is used to calculate relative abundance of each organism or taxonomic name in the sample.
+
+| COLUMN | NAME                  | DESCRIPTION                                                                | EQUIVALENT                                                 | 
+|--------|-----------------------|----------------------------------------------------------------------------|------------------------------------------------------------| 
+| 1      | LEVEL                 | Taxonomic rank                                                             |                                                            | 
+| 2      | NAME                  | Taxonomic name                                                             |                                                            | 
+| 3      | TAXID                 | Taxonomic ID                                                               |                                                            | 
+| 4      | READ_COUNT            | Number of mapped reads                                                     |                                                            | 
+| 5      | TOTAL_BP_MAPPED       | Total bases of mapped reads                                                |                                                            | 
+| 6      | TOTAL_BP_MISMATCH     | Total mismatch bases of mapped reads                                       |                                                            | 
+| 7      | LINEAR_LENGTH         | Number of non-overlapping bases covering the signatures                    |                                                            | 
+| 8      | LINEAR_DOC            | Linear depth-of-coverage                                                   | TOTAL_BP_MAPPED / LINEAR_LENGTH                            | 
+| 9      | REL_ABUNDANCE         | Normalized abundance                                                       | ABUNDANCE / ∑ ABUNDANCE (for each level)                   | 
+| 10     | LINEAR_COV            | Proportion of covered signatures to total signatures of mapped organism(s) | LINEAR_LENGTH / SIG_LENGTH_TOL                             | 
+| 11     | LINEAR_COV_MAPPED_SIG | Proportion of covered signatures to mapped signatures                      | LINEAR_LENGTH / SIG_LENGTH_MAPPED                          | 
+| 12     | BEST_LINEAR_COV       | Best linear coverage of corresponding taxons                               |                                                            | 
+| 13     | DOC                   | Average depth-of-coverage                                                  | TOTAL_BP_MAPPED / SIG_LENGTH_TOL                           | 
+| 14     | BEST_DOC              | Best DOC of corresponding taxons                                           |                                                            | 
+| 15     | SIG_LENGTH_TOL        | Length of all signatures in mapped organism(s)                             |                                                            | 
+| 16     | SIG_LENGTH_MAPPED     | Length of signatures in mapped signature fragment(s)                       |                                                            | 
+| 17     | COPY                  | Mimic cell copy number                                                     | ∑ DOC                                                      | 
+| 18     | ABUNDANCE             | abundance of the taxon                                                     | [READ_COUNT|TOTAL_BP_MAPPED|LINEAR_LENGTH|LINEAR_DOC|COPY] | 
+| 19     | NOTE                  | Information                                                                |                                                            | 
+
+-------------------------------------------------------------------
 ## INSTRUCTIONS
 
 ```python

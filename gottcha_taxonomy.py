@@ -305,6 +305,9 @@ def getTaxType( taxID ):
 	return taxID
 
 def getTaxRank( taxID, guess_strain=True ):
+	if taxID == "131567":
+		return "others"
+
 	if not taxID in taxRanks:
 		return "unknown"
 
