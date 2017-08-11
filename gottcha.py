@@ -121,7 +121,7 @@ def parse_params( ver ):
 			bin_dir = os.path.dirname(os.path.realpath(__file__))
 			args_parsed.database = bin_dir + "/database/" + args_parsed.database
 
-	if args_parsed.database:
+	if args_parsed.database and args_parsed.input:
 		if not os.path.isfile( args_parsed.database + ".amb" ):
 			p.error( 'Incorrect BWA index: missing %s.amb.' % args_parsed.database )
 		if not os.path.isfile( args_parsed.database + ".ann" ):
@@ -318,67 +318,74 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 	"""
 	Take parsed SAM output and rollup to superkingdoms
 	"""
-	res_rollup_str = gt._autoVivification()
 	res_rollup = gt._autoVivification()
 	res_tree = gt._autoVivification()
 
 	# rollup to strain first
 	for ref in r:
-		(acc, start, stop, tid) = ref.split('|')
-		if tid in res_rollup_str:
+		(acc, start, stop, stid) = ref.split('|')
+		if stid in res_rollup:
 			# ML: mapped region
 			# MB: # of mapped bases
 			# MR: # of mapped reads
 			# NM: # of mismatches
 			# LL: linear length
-			# SL: length of signature fragments
-			res_rollup_str[tid]["ML"] += ";%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
-			res_rollup_str[tid]["MB"] += r[ref]["MB"]
-			res_rollup_str[tid]["MR"] += r[ref]["MR"]
-			res_rollup_str[tid]["NM"] += r[ref]["NM"]
-			res_rollup_str[tid]["LL"] += r[ref]["LL"]
-			res_rollup_str[tid]["SL"] += int(stop) - int(start) + 1
+			# SL: length of this signature fragments (mapped)
+			# TS: length of total signature fragments for a strain (mapped + unmapped)
+			res_rollup[stid]["ML"] += ";%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
+			res_rollup[stid]["MB"] += r[ref]["MB"]
+			res_rollup[stid]["MR"] += r[ref]["MR"]
+			res_rollup[stid]["NM"] += r[ref]["NM"]
+			res_rollup[stid]["LL"] += r[ref]["LL"]
+			res_rollup[stid]["SL"] += int(stop) - int(start) + 1
 		else:
-			res_rollup_str[tid]["ML"] = "%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
-			res_rollup_str[tid]["MB"] = r[ref]["MB"]
-			res_rollup_str[tid]["MR"] = r[ref]["MR"]
-			res_rollup_str[tid]["NM"] = r[ref]["NM"]
-			res_rollup_str[tid]["LL"] = r[ref]["LL"]
-			res_rollup_str[tid]["SL"] = int(stop) - int(start) + 1
+			res_rollup[stid]["ML"] = "%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
+			res_rollup[stid]["MB"] = r[ref]["MB"]
+			res_rollup[stid]["MR"] = r[ref]["MR"]
+			res_rollup[stid]["NM"] = r[ref]["NM"]
+			res_rollup[stid]["LL"] = r[ref]["LL"]
+			res_rollup[stid]["SL"] = int(stop) - int(start) + 1
+			res_rollup[stid]["TS"] = db_stats[stid]
 
-	# apply cutoffs strain level and rollup to higher levels		
-	for t in res_rollup_str:
-		tree = gt.taxid2fullLinkDict( t )
-
+	# get all strain tax id
+	allStrTaxid = list(res_rollup)
+	
+	# roll strain results to upper levels
+	for stid in allStrTaxid:
 		# calculate DOC and LC for strains
-		res_rollup_str[t]["bDOC"] = res_rollup_str[t]["MB"]/db_stats[t]
-		res_rollup_str[t]["bLC"]  = res_rollup_str[t]["LL"]/db_stats[t]
+		res_rollup[stid]["bDOC"] = res_rollup[stid]["MB"]/db_stats[stid]
+		res_rollup[stid]["bLC"]  = res_rollup[stid]["LL"]/db_stats[stid]
 
-		if mc > res_rollup_str[t]["LL"]/db_stats[t] or mr > res_rollup_str[t]["MR"] or ml > res_rollup_str[t]["LL"]:
+		# apply cutoffs strain level and rollup to higher levels		
+		if mc > res_rollup[stid]["LL"]/db_stats[stid] or mr > res_rollup[stid]["MR"] or ml > res_rollup[stid]["LL"]:
 		   continue
-		
+	
+		tree = gt.taxid2fullLinkDict( stid )
+
 		for pid, tid in tree.items():
 			res_tree[pid][tid] = 1
 			if tid in res_rollup:
 				# bDOC: best Depth of Coverage of a strain
 				# bLC:  best linear coverage of a strain
-				res_rollup[tid]["ML"]   += ";%s" % res_rollup_str[t]["ML"]
-				res_rollup[tid]["MB"]   += res_rollup_str[t]["MB"]  
-				res_rollup[tid]["MR"]   += res_rollup_str[t]["MR"]
-				res_rollup[tid]["NM"]   += res_rollup_str[t]["NM"]
-				res_rollup[tid]["LL"]   += res_rollup_str[t]["LL"]
-				res_rollup[tid]["SL"]   += res_rollup_str[t]["SL"]
-				res_rollup[tid]["bDOC"] = res_rollup_str[t]["bDOC"] if res_rollup_str[t]["bDOC"] > res_rollup[tid]["bDOC"] else res_rollup[tid]["bDOC"]
-				res_rollup[tid]["bLC"]  = res_rollup_str[t]["bLC"] if res_rollup_str[t]["bLC"] > res_rollup[tid]["bLC"] else res_rollup[tid]["bLC"]
+				res_rollup[tid]["ML"]   += ";%s" % res_rollup[stid]["ML"]
+				res_rollup[tid]["MB"]   += res_rollup[stid]["MB"]  
+				res_rollup[tid]["MR"]   += res_rollup[stid]["MR"]
+				res_rollup[tid]["NM"]   += res_rollup[stid]["NM"]
+				res_rollup[tid]["LL"]   += res_rollup[stid]["LL"]
+				res_rollup[tid]["SL"]   += res_rollup[stid]["SL"]
+				res_rollup[tid]["TS"]   += res_rollup[stid]["TS"]
+				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"] if res_rollup[stid]["bDOC"] > res_rollup[tid]["bDOC"] else res_rollup[tid]["bDOC"]
+				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"] if res_rollup[stid]["bLC"] > res_rollup[tid]["bLC"] else res_rollup[tid]["bLC"]
 			else:
-				res_rollup[tid]["ML"]   = res_rollup_str[t]["ML"]
-				res_rollup[tid]["MB"]   = res_rollup_str[t]["MB"]  
-				res_rollup[tid]["MR"]   = res_rollup_str[t]["MR"]
-				res_rollup[tid]["NM"]   = res_rollup_str[t]["NM"]
-				res_rollup[tid]["LL"]   = res_rollup_str[t]["LL"]
-				res_rollup[tid]["SL"]   = res_rollup_str[t]["SL"]
-				res_rollup[tid]["bDOC"] = res_rollup_str[t]["bDOC"]
-				res_rollup[tid]["bLC"]  = res_rollup_str[t]["bLC"]
+				res_rollup[tid]["ML"]    = res_rollup[stid]["ML"]
+				res_rollup[tid]["MB"]    = res_rollup[stid]["MB"]  
+				res_rollup[tid]["MR"]    = res_rollup[stid]["MR"]
+				res_rollup[tid]["NM"]    = res_rollup[stid]["NM"]
+				res_rollup[tid]["LL"]    = res_rollup[stid]["LL"]
+				res_rollup[tid]["SL"]    = res_rollup[stid]["SL"]
+				res_rollup[tid]["TS"]    = res_rollup[stid]["TS"]
+				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"]
+				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"]
 
 	return res_rollup, res_tree
 
@@ -426,28 +433,37 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 	for tid in res_rollup:
 		rank = gt.taxid2rank(tid)
 
-		if mode == "summary" and ( mc > res_rollup[tid]["LL"]/res_rollup[tid]["SL"] or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]) ):
-			continue
-
-		if rank in major_ranks and major_ranks[rank] <= major_ranks[tg_rank]:
-			if relAbu == "LINEAR_LENGTH":
-				abundance = int(res_rollup[tid]["LL"])
-			elif relAbu == "TOTAL_BP_MAPPED":
-				abundance = int(res_rollup[tid]["MB"])
-			elif relAbu == "READ_COUNT":
-				abundance = int(res_rollup[tid]["MR"])
+		if rank in major_ranks:
+			if (tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid]) or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]):
+				output[rank]["RES"][tid] = 0
 			else:
-				abundance = int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"])
+				if relAbu == "LINEAR_LENGTH":
+					abundance = int(res_rollup[tid]["LL"])
+				elif relAbu == "TOTAL_BP_MAPPED":
+					abundance = int(res_rollup[tid]["MB"])
+				elif relAbu == "READ_COUNT":
+					abundance = int(res_rollup[tid]["MR"])
+				else:
+					abundance = int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"])
 
-			output[rank]["RES"][tid] = abundance
+				output[rank]["RES"][tid] = abundance
 
-			if "TOT_ABU" in output[rank]:
-				output[rank]["TOT_ABU"] += abundance
-			else:
-				output[rank]["TOT_ABU"] = abundance
+				if "TOT_ABU" in output[rank]:
+					output[rank]["TOT_ABU"] += abundance
+				else:
+					output[rank]["TOT_ABU"] = abundance
 	
 	# Field names for full mode
-	add_field = "\tBEST_DOC\tNOTE\tMAPPED_REGION" if mode == "full" else ""
+	add_field = "\t" + "\t".join([
+			"LINEAR_COV",
+			"LINEAR_COV_MAPPED_SIG",
+			"BEST_LINEAR_COV",
+			"BEST_DOC",
+			"MAPPED_SIG_LENGTH",
+			"TOL_SIG_LENGTH",
+			"ABUNDANCE",
+			"NOTE"
+			]) if mode == "full" else ""
 
 	# Field
 	o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s\n" %
@@ -455,23 +471,31 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 			  "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_DOC", "REL_ABUNDANCE", add_field ) )
 
 	for rank in sorted( major_ranks, key=major_ranks.__getitem__ ):
-		if major_ranks[rank] > major_ranks[tg_rank]: break
+		if major_ranks[rank] > major_ranks[tg_rank] and mode == "summary":
+			break
+		
 		taxas = output[rank]["RES"]
 		for tid in sorted( taxas, key=taxas.__getitem__, reverse=True):
-			mc_note = "Filtered out for minCov. "   if mc > res_rollup[tid]["LL"]/res_rollup[tid]["SL"] else ""
-			mr_note = "Filtered out for minReads. " if mr > int(res_rollup[tid]["MR"]) else ""
-			ml_note = "Filtered out for minLen. "   if ml > int(res_rollup[tid]["LL"]) else ""
+			note = ""
+			note += "Filtered out (minCov > %.2f); "%(res_rollup[tid]["LL"]/db_stats[tid]) if rank == "strain" and tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid] else ""
+			note += "Filtered out (minReads > %s); "%res_rollup[tid]["MR"] if mr > int(res_rollup[tid]["MR"]) else ""
+			note += "Filtered out (minLen > %s); "  %res_rollup[tid]["LL"] if ml > int(res_rollup[tid]["LL"]) else ""
+			note += "Hidden (Biased result); " if major_ranks[rank] > major_ranks[tg_rank] else ""
 
-			add_field = "\t%.4f\t%s%s%s\t%s" % (
-			    (res_rollup[tid]["LL"]/res_rollup[tid]["SL"]),
-				mc_note,
-				mr_note,
-				ml_note,
-				res_rollup[tid]["ML"]
+			# additional fileds for full mode
+			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%s" % (
+			    res_rollup[tid]["LL"]/res_rollup[tid]["TS"],
+			    res_rollup[tid]["LL"]/res_rollup[tid]["SL"],
+			    res_rollup[tid]["bLC"],
+			    res_rollup[tid]["bDOC"],
+			    res_rollup[tid]["SL"],
+			    res_rollup[tid]["TS"],
+			    output[rank]["RES"][tid],
+			    note,
+			    #res_rollup[tid]["ML"]
 			) if mode == "full" else ""
 
-			if mc_note and mr_note and ml_note and mode=="summary":
-				continue
+			if note and mode=="summary": continue
 
 			o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.4f\t%.4f%s\n" %
 				( rank,
