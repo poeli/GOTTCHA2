@@ -377,7 +377,7 @@ def loadTaxonomy( dbpath=taxonomyDir ):
 				taxDepths[tid] = depth
 				taxRanks[tid] = rank
 				taxNames[tid] = name
-				taxLeaves[tid] = 1;
+				taxLeaves[tid] = 1
 				if parent in taxLeaves: del taxLeaves[parent]
 			f.close()
 	except IOError:

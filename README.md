@@ -39,7 +39,7 @@ GOTTCHA reports profiling results in plain text table (*.gottcha.tsv) by default
 | 14     | BEST_DOC              | Best DOC of corresponding taxons                                           |                                                            | 
 | 15     | SIG_LENGTH_TOL        | Length of all signatures in mapped organism(s)                             |                                                            | 
 | 16     | SIG_LENGTH_MAPPED     | Length of signatures in mapped signature fragment(s)                       |                                                            | 
-| 17     | COPY                  | Mimic cell copy number                                                     | ∑ DOC                                                      | 
+| 17     | CELL_COPY             | Mimic cell copy number                                                     | ∑ DOC                                                      | 
 | 18     | ABUNDANCE             | abundance of the taxon                                                     | [READ_COUNT|TOTAL_BP_MAPPED|LINEAR_LENGTH|LINEAR_DOC|COPY] | 
 | 19     | NOTE                  | Information                                                                |                                                            | 
 

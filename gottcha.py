@@ -74,7 +74,7 @@ def parse_params( ver ):
 	        		help="Specify a NCBI taxonomy ID. The program  will only report/extract the taxonomy you specified.")
 
 	p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='LINEAR_DOC',
-					choices=['LINEAR_LENGTH','TOTAL_BP_MAPPED','READ_COUNT','LINEAR_DOC','COPY'],
+					choices=['LINEAR_LENGTH','TOTAL_BP_MAPPED','READ_COUNT','LINEAR_DOC','CELL_COPY'],
 					help='The field will be used to calculate relative abundance. You can specify one of the following fields: "LINEAR_LENGTH", "TOTAL_BP_MAPPED", "READ_COUNT" and "LINEAR_DOC". [default: LINEAR_DOC]')
 
 	p.add_argument( '-t','--threads', metavar='<INT>', type=int, default=1,
@@ -320,6 +320,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 	"""
 	res_rollup = gt._autoVivification()
 	res_tree = gt._autoVivification()
+	major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7}
 
 	# rollup to strain first
 	for ref in r:
@@ -349,14 +350,17 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 
 	# get all strain tax id
 	allStrTaxid = list(res_rollup)
-	
-	# roll strain results to upper levels
+
+	# Calculating DOC, LC and CC for strains
+	# These calculations need to be done before rollup step because
+	# it's possible that a strain's parent is a strain (no rank) as well
 	for stid in allStrTaxid:
-		# calculate DOC and LC for strains
 		res_rollup[stid]["bDOC"] = res_rollup[stid]["MB"]/db_stats[stid]
 		res_rollup[stid]["bLC"]  = res_rollup[stid]["LL"]/db_stats[stid]
-		res_rollup[stid]["CP"]   = res_rollup[stid]["MB"]/db_stats[stid]
+		res_rollup[stid]["CC"]   = res_rollup[stid]["MB"]/db_stats[stid]
 
+	# roll strain results to upper levels
+	for stid in allStrTaxid:
 		# apply cutoffs strain level and rollup to higher levels		
 		if mc > res_rollup[stid]["LL"]/db_stats[stid] or mr > res_rollup[stid]["MR"] or ml > res_rollup[stid]["LL"]:
 		   continue
@@ -365,7 +369,10 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 
 		for pid, tid in tree.items():
 			res_tree[pid][tid] = 1
-			if tid == stid: continue # skip strain id, rollup only
+			if tid == stid: # skip strain id, rollup only
+				continue
+			if not gt.getTaxRank(tid) in major_ranks:
+				continue
 			if tid in res_rollup:
 				# bDOC: best Depth of Coverage of a strain
 				# bLC:  best linear coverage of a strain
@@ -376,7 +383,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 				res_rollup[tid]["LL"]   += res_rollup[stid]["LL"]
 				res_rollup[tid]["SL"]   += res_rollup[stid]["SL"]
 				res_rollup[tid]["TS"]   += res_rollup[stid]["TS"]
-				res_rollup[tid]["CP"]   += res_rollup[stid]["CP"]
+				res_rollup[tid]["CC"]   += res_rollup[stid]["CC"]
 				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"] if res_rollup[stid]["bDOC"] > res_rollup[tid]["bDOC"] else res_rollup[tid]["bDOC"]
 				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"] if res_rollup[stid]["bLC"] > res_rollup[tid]["bLC"] else res_rollup[tid]["bLC"]
 			else:
@@ -387,7 +394,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 				res_rollup[tid]["LL"]    = res_rollup[stid]["LL"]
 				res_rollup[tid]["SL"]    = res_rollup[stid]["SL"]
 				res_rollup[tid]["TS"]    = res_rollup[stid]["TS"]
-				res_rollup[tid]["CP"]    = res_rollup[stid]["CP"]
+				res_rollup[tid]["CC"]    = res_rollup[stid]["CC"]
 				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"]
 				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"]
 
@@ -442,15 +449,15 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 				output[rank]["RES"][tid] = 0
 			else:
 				if relAbu == "LINEAR_LENGTH":
-					abundance = int(res_rollup[tid]["LL"])
+					abundance = res_rollup[tid]["LL"]
 				elif relAbu == "TOTAL_BP_MAPPED":
-					abundance = int(res_rollup[tid]["MB"])
+					abundance = res_rollup[tid]["MB"]
 				elif relAbu == "READ_COUNT":
-					abundance = int(res_rollup[tid]["MR"])
-				elif relAbu == "COPY":
-					abundance = int(res_rollup[tid]["CP"])
+					abundance = res_rollup[tid]["MR"]
+				elif relAbu == "CELL_COPY":
+					abundance = res_rollup[tid]["CC"]
 				else:
-					abundance = int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"])
+					abundance = res_rollup[tid]["MB"]/res_rollup[tid]["LL"]
 
 				output[rank]["RES"][tid] = abundance
 
@@ -468,7 +475,7 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 			"BEST_DOC",
 			"MAPPED_SIG_LENGTH",
 			"TOL_SIG_LENGTH",
-			"COPY",
+			"CELL_COPY",
 			"ABUNDANCE",
 			"NOTE"
 			]) if mode == "full" else ""
@@ -501,9 +508,9 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
 			    res_rollup[tid]["bDOC"],
 			    res_rollup[tid]["SL"],
 			    res_rollup[tid]["TS"],
-				res_rollup[tid]["CP"],
+				res_rollup[tid]["CC"],
 			    output[rank]["RES"][tid],
-			    note,
+			    note
 			    #res_rollup[tid]["ML"]
 			) if mode == "full" else ""
 
