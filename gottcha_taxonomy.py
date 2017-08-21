@@ -371,7 +371,7 @@ def loadTaxonomy( dbpath=taxonomyDir ):
 	except IOError:
 		_die( "Failed to open taxonomy file: %s.\n" % taxonomy_file )
 
-	if DEBUG: sys.stderr.write( "[INFO] Done parsing taxonomy.tab (%d taxons loaded)\n" % len(taxParents) )
+	if DEBUG: sys.stderr.write( "[INFO] Done parsing taxonomy file (%d taxons loaded)\n" % len(taxParents) )
 
 	if taxParents["2"] == "1":
 		_die( "Local taxonomy database is out of date. Update using updateTaxonomy.sh." )
@@ -396,7 +396,7 @@ def _checkTaxonomy( taxID ):
 	if not len(taxParents):
 		_die("Taxonomy not loaded. \"loadTaxonomy()\" must be called first.\n")
 	if not taxID in taxParents:
-		_die("Taxonomy not found. Please sync your taxonomy database.\n")
+		_die("Taxonomy not found. Please check input taxonomy database.\n")
 
 if __name__ == '__main__':
 	loadTaxonomy()
