@@ -74,7 +74,7 @@ def parse_params( ver ):
 	        		help="Specify a NCBI taxonomy ID. The program  will only report/extract the taxonomy you specified.")
 
 	p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='LINEAR_DOC',
-					choices=['LINEAR_LENGTH','TOTAL_BP_MAPPED','READ_COUNT','LINEAR_DOC','CELL_COPY'],
+					choices=['CELL_COPY','LINEAR_DOC','READ_COUNT','LINEAR_LENGTH','TOTAL_BP_MAPPED'],
 					help='The field will be used to calculate relative abundance. You can specify one of the following fields: "LINEAR_LENGTH", "TOTAL_BP_MAPPED", "READ_COUNT" and "LINEAR_DOC". [default: LINEAR_DOC]')
 
 	p.add_argument( '-t','--threads', metavar='<INT>', type=int, default=1,
@@ -109,7 +109,7 @@ def parse_params( ver ):
 	"""
 	Checking options
 	"""
-	if args_parsed.input and not args_parsed.database:
+	if not args_parsed.database:
 		p.error( '--database option is missing.' )
 
 	if args_parsed.input and args_parsed.sam:
@@ -238,7 +238,7 @@ def processSAMfile( sam_fp, numthreads, numlines ):
 	result = gt._autoVivification()
 	mapped_reads = 0
 
-	lines = sam_fp.readlines();
+	lines = sam_fp.readlines()
 	if len(lines) > numlines and numthreads > 2:
 		pool = Pool(processes=numthreads)
 		result_list = pool.map(worker,

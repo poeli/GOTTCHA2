@@ -35,7 +35,7 @@ tidLineageDict = {}
 ####################
 
 def acc2taxid( acc ):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 	accession2taxid_file=taxonomyDir+"/accession2taxid.tsv"
 	#remove version number#
 	acc = acc.split('.')[0]
@@ -84,19 +84,19 @@ def acc2taxid( acc ):
 	return accTid[acc]
 
 def taxid2rank( taxID ):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 	return getTaxRank(taxID)
 
 def taxid2name( taxID ):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 	return getTaxName(taxID)
 
 def taxid2depth( taxID ):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 	return getTaxDepth(taxID)
 
 def taxid2nameOnRank( taxID, r ):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 
 	if taxID == 1: return "root"
 	if r == "root": return "root"
@@ -117,7 +117,7 @@ def taxid2nameOnRank( taxID, r ):
 	return ""
 
 def taxid2taxidOnRank( taxID, r ):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 	rank = getTaxRank(taxID)
 	name = getTaxName(taxID)
 
@@ -135,13 +135,14 @@ def taxid2taxidOnRank( taxID, r ):
 	return ""
 
 def taxidIsLeaf( taxID ):
+	_checkTaxonomy( taxID )
 	if taxID in taxLeaves:
 		return True
 	else:
 		return False
 
 def taxid2fullLineage( taxID ):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 	fullLineage = ""
 
 	while taxID != '1':
@@ -154,7 +155,7 @@ def taxid2fullLineage( taxID ):
 	return fullLineage
 
 def taxid2fullLinkDict( taxID ):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 	fullLineage = ""
 	link = {}
 
@@ -176,7 +177,7 @@ def taxid2lineageDICT( tid, print_all_rank=1, print_strain=0, replace_space2unde
 	return _taxid2lineage( tid, print_all_rank, print_strain, replace_space2underscore, output_type )
 
 def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, output_type):
-	_checkTaxonomy()
+	_checkTaxonomy( taxID )
 
 	if output_type == "DICT":
 		if tid in tidLineageDict: return tidLineageDict[tid]
@@ -272,15 +273,18 @@ def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, 
 		return "|".join(lineage)
 
 def getTaxDepth( taxID ):
+	_checkTaxonomy( taxID )
 	return taxDepths[taxID]
 
 def getTaxName( taxID ):
+	_checkTaxonomy( taxID )
 	if taxID in taxNames:
 		return taxNames[taxID]
 	else:
 		return "unknown"
 
 def getTaxParent( taxID ):
+	_checkTaxonomy( taxID )
 	taxID = taxParents[taxID]
 	while taxID != '1' and taxRanks[taxID] == 'no rank':
 		taxID = taxParents[taxID]
@@ -288,6 +292,7 @@ def getTaxParent( taxID ):
 	return taxID
 
 def getTaxType( taxID ):
+	_checkTaxonomy( taxID )
 	origID = taxID
 	lastID = taxID
 	taxID = taxParents[taxID]
@@ -305,35 +310,18 @@ def getTaxType( taxID ):
 	return taxID
 
 def getTaxRank( taxID, guess_strain=True ):
-	if taxID == "131567":
-		return "others"
-
+	_checkTaxonomy( taxID )
 	if not taxID in taxRanks:
 		return "unknown"
 
 	if taxRanks[taxID] == "no rank" and taxidIsLeaf(taxID) and guess_strain:
 		return "strain"
+	elif taxRanks[taxID] == "no rank" and not taxidIsLeaf(taxID) and guess_strain:
+		return "species - others"
+	elif taxRanks[taxID] == "no rank" and taxDepths[taxID] < 4:
+		return "others" #for example, celluar organisms - taxID: 131567
 	else:
 		return taxRanks[taxID]
-
-#def loadStrainName( custom_taxonomy_file ):
-#	try:
-#		with open(custom_taxonomy_file, 'r') as f:
-#			for line in f:
-#				temp = line.rstrip('\r\n').split('\t')
-#				tid = temp[4]
-#				if "." in tid:
-#					parent, sid = tid.split('.')
-#					if not parent in taxNames: continue
-#					taxParents[tid] = parent
-#					taxDepths[tid] = str(int(taxDepths[parent]) + 1)
-#					taxRanks[tid] = "no rank"
-#					taxNames[tid] = temp[0]
-#					taxLeaves[tid] = 1
-#					if parent in taxLeaves: del taxLeaves[parent]
-#		f.close()
-#	except IOError:
-#		_die( "Failed to open custom taxonomy file: %s.\n" % custom_taxonomy_file )
 
 def loadRefSeqCatelog( refseq_catelog_file, seq_type="nc" ):
 	try:
@@ -377,7 +365,7 @@ def loadTaxonomy( dbpath=taxonomyDir ):
 				taxDepths[tid] = depth
 				taxRanks[tid] = rank
 				taxNames[tid] = name
-				taxLeaves[tid] = 1
+				taxLeaves[tid] = True
 				if parent in taxLeaves: del taxLeaves[parent]
 			f.close()
 	except IOError:
@@ -404,9 +392,11 @@ class _autoVivification(dict):
 def _die( msg ):
 	sys.exit(msg)
 
-def _checkTaxonomy():
+def _checkTaxonomy( taxID ):
 	if not len(taxParents):
 		_die("Taxonomy not loaded. \"loadTaxonomy()\" must be called first.\n")
+	if not taxID in taxParents:
+		_die("Taxonomy not found. Please sync your taxonomy database.\n")
 
 if __name__ == '__main__':
 	loadTaxonomy()
