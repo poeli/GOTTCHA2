@@ -73,9 +73,9 @@ def parse_params( ver ):
 	p.add_argument( '-x','--taxonomy', metavar='[TAXID]', type=str,
 	        		help="Specify a NCBI taxonomy ID. The program  will only report/extract the taxonomy you specified.")
 
-	p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='LINEAR_DOC',
-					choices=['CELL_COPY','LINEAR_DOC','READ_COUNT','LINEAR_LENGTH','TOTAL_BP_MAPPED'],
-					help='The field will be used to calculate relative abundance. You can specify one of the following fields: "LINEAR_LENGTH", "TOTAL_BP_MAPPED", "READ_COUNT" and "LINEAR_DOC". [default: LINEAR_DOC]')
+	p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='ROLLUP_DOC',
+					choices=['ROLLUP_DOC','READ_COUNT','TOTAL_BP_MAPPED'],
+					help='The field will be used to calculate relative abundance. You can specify one of the following fields: "LINEAR_LENGTH", "TOTAL_BP_MAPPED", "READ_COUNT" and "LINEAR_DOC". [default: ROLLUP_DOC]')
 
 	p.add_argument( '-t','--threads', metavar='<INT>', type=int, default=1,
 					help="Number of threads [default: 1]")
@@ -222,7 +222,7 @@ def parse(line):
 	match_len    = search('(\d+)M', temp[5])
 	mismatch_len = search('NM:i:(\d+)', temp[11])
 	start = int(temp[3])
-	end   = start + int(match_len.group(1)) - 1;
+	end   = start + int(match_len.group(1)) - 1
 
 	ref = temp[2].rstrip('|')
 	ref = ref[: ref.find(".0") if ref.find(".0")>0 else None ]
@@ -314,7 +314,7 @@ def seqReverseComplement( seq ):
 	seq_dict = { seq1[i]:seq1[i+16] for i in range(64) if i < 16 or 32<=i<48 }
 	return "".join([seq_dict[base] for base in reversed(seq)])
 
-def taxonomyRollUp( r, db_stats, mc, mr, ml ):
+def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml ):
 	"""
 	Take parsed SAM output and rollup to superkingdoms
 	"""
@@ -357,7 +357,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 	for stid in allStrTaxid:
 		res_rollup[stid]["bDOC"] = res_rollup[stid]["MB"]/db_stats[stid]
 		res_rollup[stid]["bLC"]  = res_rollup[stid]["LL"]/db_stats[stid]
-		res_rollup[stid]["CC"]   = res_rollup[stid]["MB"]/db_stats[stid]
+		res_rollup[stid]["RD"]   = res_rollup[stid]["MB"]/db_stats[stid]
 
 	# roll strain results to upper levels
 	for stid in allStrTaxid:
@@ -383,7 +383,7 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 				res_rollup[tid]["LL"]   += res_rollup[stid]["LL"]
 				res_rollup[tid]["SL"]   += res_rollup[stid]["SL"]
 				res_rollup[tid]["TS"]   += res_rollup[stid]["TS"]
-				res_rollup[tid]["CC"]   += res_rollup[stid]["CC"]
+				res_rollup[tid]["RD"]   += res_rollup[stid]["RD"]
 				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"] if res_rollup[stid]["bDOC"] > res_rollup[tid]["bDOC"] else res_rollup[tid]["bDOC"]
 				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"] if res_rollup[stid]["bLC"] > res_rollup[tid]["bLC"] else res_rollup[tid]["bLC"]
 			else:
@@ -394,11 +394,123 @@ def taxonomyRollUp( r, db_stats, mc, mr, ml ):
 				res_rollup[tid]["LL"]    = res_rollup[stid]["LL"]
 				res_rollup[tid]["SL"]    = res_rollup[stid]["SL"]
 				res_rollup[tid]["TS"]    = res_rollup[stid]["TS"]
-				res_rollup[tid]["CC"]    = res_rollup[stid]["CC"]
+				res_rollup[tid]["RD"]    = res_rollup[stid]["RD"]
 				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"]
 				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"]
 
+	#add abundance to res_rollup
+	for tid in res_rollup:
+		if relAbu == "LINEAR_LENGTH":
+			res_rollup[tid]["ABU"] = res_rollup[tid]["LL"]
+		elif relAbu == "TOTAL_BP_MAPPED":
+			res_rollup[tid]["ABU"] = res_rollup[tid]["MB"]
+		elif relAbu == "READ_COUNT":
+			res_rollup[tid]["ABU"] = res_rollup[tid]["MR"]
+		elif relAbu == "LINEAR_DOC":
+			res_rollup[tid]["ABU"] = res_rollup[tid]["MB"]/res_rollup[tid]["LL"]
+		else:
+			res_rollup[tid]["ABU"] = res_rollup[tid]["RD"]
+
 	return res_rollup, res_tree
+
+def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml ):
+	output = gt._autoVivification()
+	major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7,"strain":8}
+	
+	# init total abundance
+	tol_abu = {}
+	tol_abu["ROLLUP_DOC"] = 0
+	tol_abu["LINEAR_DOC"] = 0
+	tol_abu["READ_COUNT"] = 0
+	tol_abu["TOTAL_BP_MAPPED"] = 0
+	tol_abu["ABU"] = 0
+
+	# calculate total abundances and prepare dictionary using ranks as keys
+	for tid in res_rollup:
+		rank = gt.taxid2rank(tid)
+		if rank == "superkingdom":
+			tol_abu["ROLLUP_DOC"]      += res_rollup[tid]["RD"]
+			tol_abu["READ_COUNT"]      += res_rollup[tid]["MR"]
+			tol_abu["TOTAL_BP_MAPPED"] += res_rollup[tid]["MB"]
+			tol_abu["ABU"]             += res_rollup[tid]["ABU"]
+
+		if rank in major_ranks:
+			if not rank in output:
+				output[rank] = []
+			output[rank].append(tid)
+	
+	# Fields for full mode
+	add_field = "\t" + "\t".join([
+			"LINEAR_COV",
+			"LINEAR_COV_MAPPED_SIG",
+			"BEST_LINEAR_COV",
+			"DOC",
+			"BEST_DOC",
+			"MAPPED_SIG_LENGTH",
+			"TOL_SIG_LENGTH",
+			"ABUNDANCE",
+			"REL_ABU_ROLLUP_DOC",
+			"REL_ABU_READ_COUNT",
+			"REL_ABU_TOL_BP_MAPPED",
+			"NOTE"
+			]) if mode == "full" else ""
+
+	# essential fields
+	o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s\n" %
+			( "LEVEL", "NAME", "TAXID", "READ_COUNT", "TOTAL_BP_MAPPED",
+			  "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_DOC", "ROLLUP_DOC", "REL_ABUNDANCE", add_field ) )
+
+	for rank in sorted( major_ranks, key=major_ranks.__getitem__ ):
+		if major_ranks[rank] > major_ranks[tg_rank] and mode == "summary":
+			break
+
+		for tid in sorted( output[rank], key=lambda tid: res_rollup[tid]["ABU"], reverse=True):
+			note = ""
+			note += "Filtered out (minCov > %.2f); "%(res_rollup[tid]["LL"]/db_stats[tid]) if rank == "strain" and tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid] else ""
+			note += "Filtered out (minReads > %s); "%res_rollup[tid]["MR"] if mr > int(res_rollup[tid]["MR"]) else ""
+			note += "Filtered out (minLen > %s); "  %res_rollup[tid]["LL"] if ml > int(res_rollup[tid]["LL"]) else ""
+			note += "Not shown (%s-result biased); "%rank if major_ranks[rank] > major_ranks[tg_rank] else ""
+
+			# additional fileds for full mode
+			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%.4f\t%.4f\t%.4f\t%s" % (
+			    res_rollup[tid]["LL"]/res_rollup[tid]["TS"],
+			    res_rollup[tid]["LL"]/res_rollup[tid]["SL"],
+			    res_rollup[tid]["bLC"],
+				res_rollup[tid]["MB"]/res_rollup[tid]["TS"],
+			    res_rollup[tid]["bDOC"],
+			    res_rollup[tid]["SL"],
+			    res_rollup[tid]["TS"],
+			    res_rollup[tid]["ABU"],
+				res_rollup[tid]["RD"]/tol_abu["ROLLUP_DOC"],
+				res_rollup[tid]["MR"]/tol_abu["READ_COUNT"],
+				res_rollup[tid]["MB"]/tol_abu["TOTAL_BP_MAPPED"],
+			    note
+			    #res_rollup[tid]["ML"]
+			) if mode == "full" else ""
+
+			if note and mode=="summary": continue
+
+			#relative abundance
+			rel_abu = 0
+			if note:
+				rel_abu = 0
+			elif tol_abu != 0:
+				rel_abu = res_rollup[tid]["ABU"]/tol_abu["ABU"]
+
+			o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.4f\t%.4f\t%.4f%s\n" %
+				( rank,
+				  gt.taxid2name(tid),
+				  tid,
+				  res_rollup[tid]["MR"],
+				  res_rollup[tid]["MB"],
+				  res_rollup[tid]["NM"],
+				  res_rollup[tid]["LL"],
+				  res_rollup[tid]["MB"]/res_rollup[tid]["LL"],
+				  res_rollup[tid]["RD"],
+				  rel_abu,
+				  add_field
+				)
+			)
 
 def outputResultsAsTree( tid, res_tree, res_rollup, indent, dbLevel, lvlFlag, taxid_fi, o, mc, mr, ml ):
 	"""
@@ -437,117 +549,15 @@ def outputResultsAsTree( tid, res_tree, res_rollup, indent, dbLevel, lvlFlag, ta
 
 			outputResultsAsTree( cid, res_tree, res_rollup, indent, dbLevel, lvlFlag, taxid_fi, o, mc, mr, ml )
 
-def outputResultsAsRanks( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
-	output = gt._autoVivification()
-	major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7,"strain":8}
-
-	for tid in res_rollup:
-		rank = gt.taxid2rank(tid)
-
-		if rank in major_ranks:
-			if (tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid]) or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]):
-				output[rank]["RES"][tid] = 0
-			else:
-				if relAbu == "LINEAR_LENGTH":
-					abundance = res_rollup[tid]["LL"]
-				elif relAbu == "TOTAL_BP_MAPPED":
-					abundance = res_rollup[tid]["MB"]
-				elif relAbu == "READ_COUNT":
-					abundance = res_rollup[tid]["MR"]
-				elif relAbu == "CELL_COPY":
-					abundance = res_rollup[tid]["CC"]
-				else:
-					abundance = res_rollup[tid]["MB"]/res_rollup[tid]["LL"]
-
-				output[rank]["RES"][tid] = abundance
-
-				if "TOT_ABU" in output[rank]:
-					output[rank]["TOT_ABU"] += abundance
-				else:
-					output[rank]["TOT_ABU"] = abundance
-	
-	# Field names for full mode
-	add_field = "\t" + "\t".join([
-			"LINEAR_COV",
-			"LINEAR_COV_MAPPED_SIG",
-			"BEST_LINEAR_COV",
-			"DOC",
-			"BEST_DOC",
-			"MAPPED_SIG_LENGTH",
-			"TOL_SIG_LENGTH",
-			"CELL_COPY",
-			"ABUNDANCE",
-			"NOTE"
-			]) if mode == "full" else ""
-
-	# Field
-	o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s\n" %
-			( "LEVEL", "NAME", "TAXID", "READ_COUNT", "TOTAL_BP_MAPPED",
-			  "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_DOC", "REL_ABUNDANCE", add_field ) )
-
-	for rank in sorted( major_ranks, key=major_ranks.__getitem__ ):
-		if major_ranks[rank] > major_ranks[tg_rank] and mode == "summary":
-			break
-		
-		taxas = output[rank]["RES"]
-		for tid in sorted( taxas, key=taxas.__getitem__, reverse=True):
-			# skip "cellular organisms" 131567
-
-			note = ""
-			note += "Filtered out (minCov > %.2f); "%(res_rollup[tid]["LL"]/db_stats[tid]) if rank == "strain" and tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid] else ""
-			note += "Filtered out (minReads > %s); "%res_rollup[tid]["MR"] if mr > int(res_rollup[tid]["MR"]) else ""
-			note += "Filtered out (minLen > %s); "  %res_rollup[tid]["LL"] if ml > int(res_rollup[tid]["LL"]) else ""
-			note += "Hidden (Biased result); " if major_ranks[rank] > major_ranks[tg_rank] else ""
-
-			# additional fileds for full mode
-			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%.2f\t%s" % (
-			    res_rollup[tid]["LL"]/res_rollup[tid]["TS"],
-			    res_rollup[tid]["LL"]/res_rollup[tid]["SL"],
-			    res_rollup[tid]["bLC"],
-				int(res_rollup[tid]["MB"])/int(res_rollup[tid]["TS"]),
-			    res_rollup[tid]["bDOC"],
-			    res_rollup[tid]["SL"],
-			    res_rollup[tid]["TS"],
-				res_rollup[tid]["CC"],
-			    output[rank]["RES"][tid],
-			    note
-			    #res_rollup[tid]["ML"]
-			) if mode == "full" else ""
-
-			if note and mode=="summary": continue
-
-			o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.4f\t%.4f%s\n" %
-				( rank,
-				  gt.taxid2name(tid),
-				  tid,
-				  res_rollup[tid]["MR"],
-				  res_rollup[tid]["MB"],
-				  res_rollup[tid]["NM"],
-				  res_rollup[tid]["LL"],
-				  int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"]),
-				  output[rank]["RES"][tid]/output[rank]["TOT_ABU"],
-				  add_field
-				)
-			)
-
-def outputResultsAsLineage( res_rollup, o, tg_rank, relAbu, mode, mc, mr, ml ):
+def outputResultsAsLineage( res_rollup, o, tg_rank, mode, mc, mr, ml ):
 	for tid in res_rollup:
 		rank = gt.taxid2rank(tid)
 
 		if rank != tg_rank or ( mc > res_rollup[tid]["LL"]/res_rollup[tid]["SL"] or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]) ):
 			continue
 
-		if relAbu == "LINEAR_LENGTH":
-			abundance = int(res_rollup[tid]["LL"])
-		elif relAbu == "TOTAL_BP_MAPPED":
-			abundance = int(res_rollup[tid]["MB"])
-		elif relAbu == "READ_COUNT":
-			abundance = int(res_rollup[tid]["MR"])
-		else:
-			abundance = int(res_rollup[tid]["MB"])/int(res_rollup[tid]["LL"])
-
 		o.write( "%s\t%s\n" %
-			( abundance,
+			( res_rollup[tid]["ABU"],
 			  '\t'.join( gt.taxid2lineage(tid).split('|') )
 			)
 		)
@@ -591,7 +601,7 @@ def loadDatabaseStats( db_stats_file ):
 	with open(db_stats_file) as f:
 		for line in f:
 			fields = line.split("\t")
-			if fields[0] == "species" or fields[0] == "strain":
+			if fields[0] == "strain": #or fields[0] == "species":
 				db_stats[fields[2]] = int(fields[7])
 			else:
 				continue
@@ -609,8 +619,10 @@ if __name__ == '__main__':
 	sam_fp   = argvs.sam[0] if argvs.sam else ""
 	samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
 	logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
+	
 
 	print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t )
+
 
 	#dependency check
 	if sys.version_info < (3,0):
@@ -622,6 +634,8 @@ if __name__ == '__main__':
 	#prepare output object
 	out_fp = sys.stdout
 	outfile = "STDOUT"
+	argvs.relAbu = argvs.relAbu.upper()
+
 	if not argvs.stdout:
 		#create output directory if not exists
 		if not os.path.exists(argvs.outdir):
@@ -686,15 +700,14 @@ if __name__ == '__main__':
 		(res, mapped_r_cnt) = processSAMfile( sam_fp, argvs.threads, numlines)
 		print_message( "Done processing SAM file. %s reads mapped." % mapped_r_cnt, argvs.silent, begin_t )
 
-		(res_rollup, res_tree) = taxonomyRollUp( res, db_stats, argvs.minCov, argvs.minReads, argvs.minLen )
+		(res_rollup, res_tree) = taxonomyRollUp( res, db_stats, argvs.relAbu, argvs.minCov, argvs.minReads, argvs.minLen )
 		print_message( "Done taxonomy rolling up.", argvs.silent, begin_t )
 
 		if argvs.mode == 'summary' or argvs.mode == 'full':
-			outputResultsAsRanks( res_rollup, out_fp, argvs.dbLevel, argvs.relAbu, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen )
+			outputResultsAsRanks( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen )
 		elif argvs.mode == 'tree':
 			outputResultsAsTree( "1", res_tree, res_rollup, "", argvs.dbLevel, 0, argvs.taxonomy, out_fp, argvs.minCov, argvs.minReads, argvs.minLen )
 		elif argvs.mode == 'lineage':
-			outputResultsAsLineage( res_rollup, out_fp, argvs.dbLevel, argvs.relAbu, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen )
+			outputResultsAsLineage( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen )
 
 		print_message( "Done taxonomy profiling; %s results printed to %s." % (argvs.mode, outfile), argvs.silent, begin_t )
-
