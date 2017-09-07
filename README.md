@@ -27,6 +27,8 @@ See the GNU General Public License for more details.
 -------------------------------------------------------------------
 ## DEPENDENCIES
 
+GOTTCHA2 profiler is written in Python 3 and leverage BWA-MEM to map reads to signature sequences. In order to run GOTTCHA2 correctly, your system requires to have following dependencies installed correctly.
+
 - Python 3.0+
 - BWA 0.7+
 
