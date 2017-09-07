@@ -1,34 +1,28 @@
 # Genomic Origin Through Taxonomic CHAllenge (GOTTCHA)
 
-GOTTCHA is an application of a novel, gene-independent and signature-based metagenomic
-taxonomic profiling method with significantly smaller false discovery rates (FDR) that is 
-laptop deployable. Our algorithm was tested and validated on twenty synthetic and mock 
-datasets ranging in community composition and complexity, was applied successfully to data
-generated from spiked environmental and clinical samples, and robustly demonstrates 
-superior performance compared with other available tools.
+GOTTCHA is an application of a novel, gene-independent and signature-based metagenomic taxonomic profiling 
+method with significantly smaller false discovery rates (FDR) that is laptop deployable. Our algorithm was 
+tested and validated on twenty synthetic and mock datasets ranging in community composition and complexity, 
+was applied successfully to data generated from spiked environmental and clinical samples, and robustly 
+demonstrates superior performance compared with other available tools.
 
 GOTTCHAv2 is currently under development in BETA stage. Pre-built databases for v1 are incompatible with v2.
 
 -------------------------------------------------------------------
 ## DISCLOSURE and COPYRIGHT
 
-Copyright (2017).  Los Alamos National Security, LLC. This material was produced
- under U.S. Government contract DE-AC52-06NA25396 for Los Alamos National Labora
-tory (LANL), which is operated by Los Alamos National Security, LLC for the U.S.
- Department of Energy. The U.S. Government has rights to use, reproduce, and dis
-tribute this software.  NEITHER THE GOVERNMENT NOR LOS ALAMOS NATIONAL SECURITY,
- LLC MAKES ANY WARRANTY, EXPRESS OR IMPLIED, OR ASSUMES ANY LIABILITY FOR THE US
-E OF THIS SOFTWARE.  If software is modified to produce derivative works, such m
-odified software should be clearly marked, so as not to confuse it with the vers
-ion available from LANL.
+Copyright (2017).  Los Alamos National Security, LLC. This material was produced under U.S. Government contract 
+DE-AC52-06NA25396 for Los Alamos National Laboratory (LANL), which is operated by Los Alamos National Security, 
+LLC for the U.S. Department of Energy. The U.S. Government has rights to use, reproduce, and distribute this 
+software.  NEITHER THE GOVERNMENT NOR LOS ALAMOS NATIONAL SECURITY, LLC MAKES ANY WARRANTY, EXPRESS OR IMPLIED, 
+OR ASSUMES ANY LIABILITY FOR THE USE OF THIS SOFTWARE.  If software is modified to produce derivative works, 
+such modified software should be clearly marked, so as not to confuse it with the version available from LANL.
 
-Additionally, this program is free software; you can redistribute it and/or modi
-fy it under the terms of the GNU General Public License as published by the Free
- Software Foundation; either version 2 of the License, or (at your option) any l
-ater version. Accordingly, this program is distributed in the hope that it will 
-be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of MERCHA
-NTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public Licens
-e for more details.
+Additionally, this program is free software; you can redistribute it and/or modify it under the terms of the GNU 
+General Public License as published by the Free Software Foundation; either version 2 of the License, or (at your 
+option) any later version. Accordingly, this program is distributed in the hope that it will be useful, but 
+WITHOUT ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. 
+See the GNU General Public License for more details.
 
 -------------------------------------------------------------------
 ## SYSTEM REQUIREMENT
@@ -40,18 +34,18 @@ Python 3.0+ is required. Linux (2.6 kernel or later) or Mac (OSX 10.6 Snow Leopa
 
 0. All available pre-computed databases for RefSeq-Release81 can be found at [LANL's FTP site](ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/).
 
-1. Downloading GOTTCHA2 using git clone and cd to the cloned directory: 
+1. Download GOTTCHA2 using git clone and cd to the cloned directory: 
 
         git clone https://gitlab.com/poeli/GOTTCHA2.git
         cd GOTTCHA2
         mkdir database
 
-2. Downloading the database for bacterial species-level identification and untar: 
+2. Download the database for bacterial species-level identification and untar: 
 
         wget ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/RefSeq-Release81.Bacteria.species.fna.tar
         tar -xf RefSeq-Release81.Bacteria.species.fna.tar -C database
 
-3. Downloading taxonomy information and untar:
+3. Download taxonomy information and untar:
 
         wget ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/taxonomy.tar
         tar -xf taxonomy.tar -C database
@@ -64,14 +58,14 @@ Python 3.0+ is required. Linux (2.6 kernel or later) or Mac (OSX 10.6 Snow Leopa
 ## RESULT
 
 GOTTCHA2 provides 5 different outputs that can be specified using `--mode` option (-m [summary|full|tree|class|extract|lineage]):
-- "summary" : report a summary of profiling result (10 columns) in taxonomic ranks breakdown 
-- "full" : other than a summary result, a full report including unfiltered profiling results and 12 additional columns
+- "summary" : report a summary of profiling results (10 columns) in taxonomic ranks breakdown 
+- "full" : report full profiling results including unfiltered profiling results and 12 additional columns
 - "tree" : summary report with taxonomic lineage breakdown
 - "class" : output read classifications
 - "extract" : extract reads
 - "lineage" : output lineage and abundance of a taxonomy per line
 
-#### summary and full reports
+#### Summary and full reports
 
 A full GOTTCHA2 report has 22 columns in tab-delimited format. The summary report is a brief version that has the first 10 columns and qualified taxonomies. The report lists profiling results at taxonomic rank breakdown from superkingdom to strain, following by other information listed below. The rollup depth of coverage (ROLLUP_DOC) is used to calculate relative abundance (column 10) by default, as well as other relative abundance calculations (column 19-21).
 
