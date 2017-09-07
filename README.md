@@ -25,9 +25,10 @@ WITHOUT ANY WARRANTY (without even the implied warranty of MERCHANTABILITY or FI
 See the GNU General Public License for more details.
 
 -------------------------------------------------------------------
-## SYSTEM REQUIREMENT
+## DEPENDENCIES
 
-Python 3.0+ is required. Linux (2.6 kernel or later) or Mac (OSX 10.6 Snow Leopard or later) operating system with minimal 8 GB of RAM is recommended.
+- Python 3.0+
+- BWA 0.7+
 
 -------------------------------------------------------------------
 ## QUICK START
