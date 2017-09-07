@@ -34,7 +34,7 @@ Python 3.0+ is required. Linux (2.6 kernel or later) or Mac (OSX 10.6 Snow Leopa
 
 0. All available pre-computed databases for RefSeq-Release81 can be found at [LANL's FTP site](ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/).
 
-1. Download GOTTCHA2 using git clone and cd to the cloned directory: 
+1. Download GOTTCHA2 using git clone, cd to the cloned directory, and make a new directory for the database: 
 
         git clone https://gitlab.com/poeli/GOTTCHA2.git
         cd GOTTCHA2
