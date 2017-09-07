@@ -44,6 +44,7 @@ Python 3.0+ is required. Linux (2.6 kernel or later) or Mac (OSX 10.6 Snow Leopa
 
         git clone https://gitlab.com/poeli/GOTTCHA2.git
         cd GOTTCHA2
+        mkdir database
 
 2. Downloading the database for bacterial species-level identification and untar: 
 
