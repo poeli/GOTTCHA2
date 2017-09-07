@@ -98,7 +98,7 @@ A full GOTTCHA2 report has 22 columns in tab-delimited format. The summary repor
 | 19     | REL_ABU_ROLLUP_DOC    | Relative abundance calculated with ROLLUP_DOC                              | = ROLLUP_DOC / ∑ ROLLUP_DOC of given level                 | 
 | 20     | REL_ABU_READ_COUNT    | Relative abundance calculated with READ_COUNT                              | = READ_COUNT / ∑ READ_COUNT of given level                 | 
 | 21     | REL_ABU_TOL_BP_MAPPED | Relative abundance calculated with TOL_BP_MAPPED                           | = TOL_BP_MAPPED / ∑ TOL_BP_MAPPED of given level           | 
-| 22     | NOTE                  | Information                                                                |                                                            | 
+| 22     | NOTE                  | Only note the reason for being filtered out                                |                                                            | 
 
 -------------------------------------------------------------------
 ## USAGE
