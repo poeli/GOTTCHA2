@@ -43,10 +43,12 @@ GOTTCHA2 profiler is written in Python 3 and leverage BWA-MEM to map reads to si
         cd GOTTCHA2
         mkdir database
 
-2. Download the database for bacterial species-level identification and untar. Note: Bacterial species database is almost 47GB. If you prefer a smaller database to start with, viral sepcies database `RefSeq-Release81.Virus.species.fna.tar` is 0.6GB which could be a good alternative testing database.
+2. Download the database for bacterial species-level identification and untar.
 
         wget ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/RefSeq-Release81.Bacteria.species.fna.tar
         tar -xf RefSeq-Release81.Bacteria.species.fna.tar -C database
+    
+    Note: Bacterial species database is almost 47GB. If you prefer a smaller database to start with, viral sepcies database `RefSeq-Release81.Virus.species.fna.tar` is 0.6GB which could be a good alternative testing database.
 
 3. Download taxonomy information and untar:
 
