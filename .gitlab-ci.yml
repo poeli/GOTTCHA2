@@ -1,4 +1,4 @@
-test:
+functional-testing:
   image: continuumio/miniconda3
   script:
     - pip install coverage
@@ -10,13 +10,19 @@ test:
     - mkdir database
     - tar -xf RefSeq-Release81.Virus.species.fna.tar -C database
     - tar -xf taxonomy.tar -C database
-    - curl -OL ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR552/009/SRR5528819/SRR5528819.fastq.gz
+    - curl -OL ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR155/009/SRR1553609/SRR1553609_1.fastq.gz
     - coverage run gottcha.py --help
     - coverage report -m
-    - coverage run gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test1 -i SRR5528819.fastq.gz
+    - coverage run gottcha.py -d database/RefSeq-Release81.Virus.species.fna -p test1 -i SRR1553609_1.fastq.gz
     - coverage report -m
     - coverage run gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test2 -s test1.gottcha_species.sam
     - coverage report -m
-
+    - coverage run gottcha.py -m tree -d database/RefSeq-Release81.Virus.species.fna -p test2 -s test1.gottcha_species.sam
+    - coverage report -m
+    - coverage run gottcha.py -m class -d database/RefSeq-Release81.Virus.species.fna -p test2 -s test1.gottcha_species.sam
+    - coverage report -m
+    - coverage run gottcha.py -m extract -x 186538 -d database/RefSeq-Release81.Virus.species.fna -p test2 -s test1.gottcha_species.sam
+    - coverage report -m
+  
 # Regex that matches the coverage amount:
 # ^\S+\.py\s+\d+\s+\d+\s+(\d+\%)
