@@ -1,5 +1,4 @@
 before_script:
-  image: continuumio/miniconda3
   - pip install coverage
   - curl -OL https://github.com/lh3/bwa/releases/download/v0.7.15/bwakit-0.7.15_x64-linux.tar.bz2
   - tar -xjf bwakit-0.7.15_x64-linux.tar.bz2
@@ -11,33 +10,19 @@ before_script:
   - tar -xf taxonomy.tar -C database
   - curl -OL ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR155/009/SRR1553609/SRR1553609_1.fastq.gz
 
-help page test:
+functional tests:
+  image: continuumio/miniconda3
   script:
     - coverage run gottcha.py --help
     - coverage report -m
-
-summary mode:
-  script:
     - coverage run gottcha.py -d database/RefSeq-Release81.Virus.species.fna -p test1 -i SRR1553609_1.fastq.gz
     - coverage report -m
-
-full mode:
-  script:
     - coverage run gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test2 -s test1.gottcha_species.sam
     - coverage report -m
-
-tree mode:
-  script:
     - coverage run gottcha.py -m tree -d database/RefSeq-Release81.Virus.species.fna -p test2 -s test1.gottcha_species.sam
     - coverage report -m
-
-class mode:
-  script:
     - coverage run gottcha.py -m class -d database/RefSeq-Release81.Virus.species.fna -p test2 -s test1.gottcha_species.sam
     - coverage report -m
-
-extract mode:
-  script:
     - coverage run gottcha.py -m extract -x 186538 -d database/RefSeq-Release81.Virus.species.fna -p test2 -s test1.gottcha_species.sam
     - coverage report -m
   
