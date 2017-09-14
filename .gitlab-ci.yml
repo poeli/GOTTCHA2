@@ -2,9 +2,9 @@ functional-testing:
   image: continuumio/miniconda3
   script:
     - pip install coverage
-    - curl -OL https://github.com/lh3/bwa/releases/download/v0.7.16/bwa-0.7.16a.tar.bz2
-    - tar -xjf bwa-0.7.16a.tar.bz2
-    - export PATH="bwa-0.7.16a:$PATH"
+    - curl -OL https://github.com/lh3/bwa/releases/download/v0.7.15/bwakit-0.7.15_x64-linux.tar.bz2
+    - tar -xjf bwakit-0.7.15_x64-linux.tar.bz2
+    - export PATH="bwa.kit:$PATH"
     - curl -OL ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/RefSeq-Release81.Virus.species.fna.tar
     - curl -OL ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/taxonomy.tar
     - mkdir database
