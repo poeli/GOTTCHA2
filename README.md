@@ -15,6 +15,7 @@ GOTTCHA2 profiler is written in Python 3 and leverage BWA-MEM to map reads to si
 
 - Python 3.0+
 - BWA 0.7+
+- GNU awk
 
 -------------------------------------------------------------------
 ## QUICK START
@@ -44,10 +45,9 @@ GOTTCHA2 profiler is written in Python 3 and leverage BWA-MEM to map reads to si
 -------------------------------------------------------------------
 ## RESULT
 
-GOTTCHA2 provides 5 different outputs that can be specified using `--mode` option (-m [summary|full|tree|class|extract|lineage]):
+GOTTCHA2 provides 5 different outputs that can be specified using `--mode` option (-m [summary|full|class|extract|lineage]):
 - "summary" : report a summary of profiling results (10 columns) in taxonomic ranks breakdown 
 - "full" : report full profiling results including unfiltered profiling results and 12 additional columns
-- "tree" : summary report with taxonomic lineage breakdown
 - "class" : output read classifications
 - "extract" : extract reads
 - "lineage" : output lineage and abundance of a taxonomy per line
@@ -87,7 +87,7 @@ A full GOTTCHA2 report has 22 columns in tab-delimited format. The summary repor
 ```
 usage: gottcha.py [-h] (-i [FASTQ] [[FASTQ] ...] | -s [SAMFILE])
                   [-d [BWA_INDEX]] [-l [LEVEL]] [-ti [FILE]] [-pm <INT>]
-                  [-m {summary,full,tree,class,extract,lineage}] [-x [TAXID]]
+                  [-m {summary,full,class,extract,lineage}] [-x [TAXID]]
                   [-r [FIELD]] [-t <INT>] [-o [DIR]] [-p <STR>] [-mc <FLOAT>]
                   [-mr <INT>] [-ml <INT>] [-nc] [-c] [--silent]
 
@@ -127,12 +127,11 @@ optional arguments:
                         BWA-MEM is running). You can use 99 for not allowing
                         mismatch in alignments (except for extreme cases).
                         [default: 5]
-  -m {summary,full,tree,class,extract,lineage}, --mode {summary,full,tree,class,extract,lineage}
+  -m {summary,full,class,extract,lineage}, --mode {summary,full,class,extract,lineage}
                         You can specify one of the following output modes:
                         "summary" : report a summary of profiling result;
                         "full" : other than a summary result, this mode will
                         report unfiltered profiling results with more detail;
-                        "tree" : report results with lineage of taxonomy;
                         "class" : output results of classified reads;
                         "extract" : extract mapped reads; "lineage" : output
                         abundance and lineage in a line; Note that only
