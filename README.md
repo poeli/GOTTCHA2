@@ -1,5 +1,10 @@
 # Genomic Origin Through Taxonomic CHAllenge (GOTTCHA)
 
+![master_build](https://gitlab.com/poeli/GOTTCHA2/badges/master/build.svg
+![master_coverage](https://gitlab.com/poeli/GOTTCHA2/badges/master/coverage.svg
+![development_build](https://gitlab.com/poeli/GOTTCHA2/badges/development/build.svg
+![development_coverage](https://gitlab.com/poeli/GOTTCHA2/badges/development/coverage.svg
+
 GOTTCHA is an application of a novel, gene-independent and signature-based metagenomic taxonomic profiling 
 method with significantly smaller false discovery rates (FDR) that is laptop deployable. Our algorithm was 
 tested and validated on twenty synthetic and mock datasets ranging in community composition and complexity, 
@@ -95,7 +100,7 @@ Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an annotation-
 independent and signature-based metagenomic taxonomic profiling tool that has
 significantly smaller FDR than other profiling tools. This program is a
 wrapper to map input reads to pre-computed signature databases using BWA-MEM
-and/or to profile mapped reads in SAM format. (VERSION: 2.2.2 BETA)
+and/or to profile mapped reads in SAM format. (VERSION: 2.0.0 BETA)
 
 optional arguments:
   -h, --help            show this help message and exit
