@@ -25,6 +25,9 @@ functional tests:
     - coverage run gottcha.py -m class -d database/RefSeq-Release81.Virus.species.fna -p test -s test.gottcha_species.sam
     - head test.class.tsv
     - coverage report -m
+    - coverage run gottcha.py -m lineage -d database/RefSeq-Release81.Virus.species.fna -p test -s test.gottcha_species.sam
+    - head test.lineage.tsv
+    - coverage report -m
     - coverage run gottcha.py -m extract -x 186538 -d database/RefSeq-Release81.Virus.species.fna -p test -s test.gottcha_species.sam
     - head test.extract186538.fastq
     - coverage report -m
