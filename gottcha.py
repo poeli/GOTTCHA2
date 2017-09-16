@@ -238,7 +238,7 @@ def processSAMfile( sam_fp, numthreads, numlines ):
 	mapped_reads = 0
 
 	lines = sam_fp.readlines()
-	if len(lines) > numlines and numthreads > 2:
+	if len(lines) > numlines and numthreads > 1:
 		pool = Pool(processes=numthreads)
 		result_list = pool.map(worker,
 		    (lines[line:line+numlines] for line in range(0,len(lines),numlines) ) )
