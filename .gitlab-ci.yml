@@ -19,8 +19,9 @@ functional tests:
     - coverage run -p ./gottcha_taxonomy.py < test_taxid.txt
 # init test
     - coverage run -p gottcha.py --help
+    - coverage run -p gottcha.py -d database/RefSeq-Release81.Virus.species.fna -p test -i SRR1553609_1.fastq.gz
 # test modes
-    - coverage run -p gottcha.py -d database/RefSeq-Release81.Virus.species.fna -p test_mode -i SRR1553609_1.fastq.gz
+    - coverage run -p gottcha.py -m summary -d database/RefSeq-Release81.Virus.species.fna -p test_mode -i SRR1553609_1.fastq.gz
     - head test_mode.summary.tsv
     - coverage run -p gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
     - head test_mode.full.tsv
