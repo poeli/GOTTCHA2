@@ -49,11 +49,11 @@ GOTTCHA2 profiler is written in Python 3 and leverage BWA-MEM to map reads to si
 ## RESULT
 
 GOTTCHA2 provides 5 different outputs that can be specified using `--mode` option (-m [summary|full|class|extract|lineage]):
-- "summary" : report a summary of profiling results (10 columns) in taxonomic ranks breakdown 
-- "full" : report full profiling results including unfiltered profiling results and 12 additional columns
-- "class" : output read classifications
-- "extract" : extract reads
-- "lineage" : output lineage and abundance of a taxonomy per line
+- summary - report a summary of profiling results (10 columns) in taxonomic ranks breakdown 
+- full - report full profiling results including unfiltered profiling results and 12 additional columns
+- class - output read classifications
+- extract - extract reads
+- lineage - output lineage and abundance of a taxonomy per line
 
 #### Summary and full reports
 

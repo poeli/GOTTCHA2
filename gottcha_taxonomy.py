@@ -484,9 +484,9 @@ def _checkTaxonomy():
 
 if __name__ == '__main__':
 	loadTaxonomy()
-	inid = input("Enter # => ")
+	print("Enter acc/taxid:")
 
-	while inid:
+	for inid in sys.stdin:
 		inid = inid.rstrip('\r\n')
 
 		if inid[0] in "1234567890":
@@ -498,7 +498,11 @@ if __name__ == '__main__':
 		if taxid:
 			print( "taxid2name( %s )  => %s" % (taxid, taxid2name(taxid)) )
 			print( "taxid2rank( %s )  => %s" % (taxid, taxid2rank(taxid)) )
+			print( "taxid2type( %s )  => %s" % (taxid, taxid2type(taxid)) )
+			print( "taxid2depth( %s )  => %s" % (taxid, taxid2depth(taxid)) )
+			print( "taxid2parent( %s )  => %s" % (taxid, taxid2parent(taxid)) )
 			print( "taxidIsLeaf( %s ) => %s" % (taxid, taxidIsLeaf(taxid)) )
+			print( "taxid2nearestMajorTaxida( %s ) => %s" % (taxid, taxid2nearestMajorTaxid(taxid)) )
 			print( "taxid2nameOnRank( %s, 'genus')   => %s" % (taxid, taxid2nameOnRank(taxid, "genus")) )
 			print( "taxid2taxidOnRank( %s, 'genus')  => %s" % (taxid, taxid2taxidOnRank(taxid, "genus")) )
 			print( "taxid2nameOnRank( %s, 'phylum')  => %s" % (taxid, taxid2nameOnRank(taxid, "phylum")) )
@@ -511,4 +515,4 @@ if __name__ == '__main__':
 		else:
 			print( "No taxid found.\n" )
 
-		inid = input("Enter acc# => ")
+		print("Enter acc/taxid:")
