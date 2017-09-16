@@ -44,7 +44,8 @@ functional tests:
     - head test_ra.full.tsv
 # test multiple threads
     - cat test.gottcha_species.sam test.gottcha_species.sam test.gottcha_species.sam > test.gottcha_species_3x.sam
-    - coverage run -p gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test_mt -s test.gottcha_species_3x.sam
+    - coverage run -p gottcha.py -m full -t 4 -d database/RefSeq-Release81.Virus.species.fna -p test_mt -s test.gottcha_species_3x.sam
     - head test_mt.full.tsv
+# coverage report
     - coverage combine
     - coverage report -m
