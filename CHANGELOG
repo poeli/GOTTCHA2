@@ -5,9 +5,9 @@ All notable changes to GOTTCHA2 will be documented in this file.
 
 ## [2.0.0 BETA] - 2017-09-16
 - Filtered taxonomies are reported with reasons in full report mode.
-- Provides 3 different relative abundacne calculations in full report mode. 
-- Use ROLLUP_DOC to calculate relative abundacne by default instead of LINEAR_DOC
-- Linear coverage is calculated by total length of signatures instead of mapped signatured
+- Provides 3 different relative abundance calculations in full report mode. 
+- Use ROLLUP_DOC to calculate relative abundance by default instead of LINEAR_DOC
+- Linear coverage is calculated by total length of signatures instead of mapped signatures
 - TREE mode is removed since this version
 - Bug fixes and performance improvements
 
