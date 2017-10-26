@@ -224,7 +224,7 @@ def parse(line):
 	end   = start + int(match_len.group(1)) - 1
 
 	ref = temp[2].rstrip('|')
-	ref = ref[: ref.find(".0") if ref.find(".0")>0 else None ]
+	ref = ref[: -2 if ref.endswith(".0") else None ]
 
 	return ref, [start, end], int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5]
 
