@@ -3,7 +3,6 @@
 # Po-E (Paul) Li
 # B-11, Los Alamos National Lab
 # Date: 05/15/2016
-# Last update: 05/15/2016
 
 import sys
 import io
@@ -12,22 +11,24 @@ import json
 import gzip
 import subprocess
 import fileinput
+import tarfile
 
 ####################
 # Global variables #
 ####################
 
 libPath = os.path.dirname(os.path.realpath(__file__))
-taxonomyDir = libPath + "/database"
+taxonomyDir = libPath + "/taxonomy_db"
 DEBUG=0
 
-taxDepths  = {}
-taxParents = {}
-taxRanks   = {}
-taxNames   = {}
-taxNumChilds  = {}
-accTid     = {}
-tidLineage = {}
+taxDepths      = {}
+taxParents     = {}
+taxRanks       = {}
+taxNames       = {}
+taxMerged      = {}
+taxNumChilds   = {}
+accTid         = {}
+tidLineage     = {}
 tidLineageDict = {}
 
 major_level = {
@@ -51,11 +52,25 @@ major_level = {
 #      Methods     #
 ####################
 
+def taxidStatus( taxID ):
+	if taxID in taxMerged:
+		return taxMerged[taxID]
+
+	if taxID in taxNames:
+		if '.' in taxID:
+			return "valid custom"
+		return "valid"
+	else:
+		return "invalid"
+
 def acc2taxid( acc ):
 	_checkTaxonomy()
 	accession2taxid_file=taxonomyDir+"/accession2taxid.tsv"
 	#remove version number#
 	acc = acc.split('.')[0]
+
+	if DEBUG: sys.stderr.write( "[INFO] acc2taxid from file: %s\n" % accession2taxid_file )
+		
 
 	if not acc in accTid:
 		with open( accession2taxid_file ) as f:
@@ -98,10 +113,12 @@ def acc2taxid( acc ):
 			else:
 				accTid[acc] = ""
 
-	return accTid[acc]
+	tid = _checkTaxonomy(accTid[acc])
+
+	return tid
 
 def taxid2rank( taxID, guess_strain=True ):
-	_checkTaxonomy()
+	taxID = _checkTaxonomy( taxID )
 	if not taxID in taxRanks:
 		return "unknown"
 
@@ -115,7 +132,7 @@ def taxid2rank( taxID, guess_strain=True ):
 		# if not
 		else:
 			nmtid = taxid2nearestMajorTaxid(taxID)
-			nmrank = getTaxRank(nmtid)
+			nmrank = _getTaxRank(nmtid)
 			if nmrank == "species":
 				return "species - others"
 			else:
@@ -124,15 +141,15 @@ def taxid2rank( taxID, guess_strain=True ):
 	return taxRanks[taxID]
 
 def taxid2name( taxID ):
-	_checkTaxonomy()
-	return getTaxName(taxID)
+	taxID = _checkTaxonomy( taxID )
+	return _getTaxName(taxID)
 
 def taxid2depth( taxID ):
-	_checkTaxonomy()
-	return getTaxDepth(taxID)
+	taxID = _checkTaxonomy( taxID )
+	return _getTaxDepth(taxID)
 
 def taxid2type( taxID ):
-	_checkTaxonomy()
+	taxID = _checkTaxonomy( taxID )
 	origID = taxID
 	lastID = taxID
 	taxID = taxParents[taxID]
@@ -150,7 +167,7 @@ def taxid2type( taxID ):
 	return taxID
 
 def taxid2parent( taxID ):
-	_checkTaxonomy()
+	taxID = _checkTaxonomy( taxID )
 	taxID = taxParents[taxID]
 	while taxID != '1' and taxRanks[taxID] == 'no rank':
 		taxID = taxParents[taxID]
@@ -158,13 +175,12 @@ def taxid2parent( taxID ):
 	return taxID
 
 def taxid2nameOnRank( taxID, r ):
-	_checkTaxonomy()
-
+	taxID = _checkTaxonomy( taxID )	
 	if taxID == 1: return "root"
 	if r == "root": return "root"
 
-	rank = getTaxRank(taxID)
-	name = getTaxName(taxID)
+	rank = _getTaxRank(taxID)
+	name = _getTaxName(taxID)
 
 	if r == "strain" and taxidIsLeaf(taxID):
 		return name
@@ -172,16 +188,16 @@ def taxid2nameOnRank( taxID, r ):
 	while taxID:
 		if rank.upper() == r.upper(): return name
 		if name == 'root': break
-		taxID = getTaxParent(taxID)
-		rank = getTaxRank(taxID)
-		name = getTaxName(taxID)
+		taxID = _getTaxParent(taxID)
+		rank = _getTaxRank(taxID)
+		name = _getTaxName(taxID)
 
 	return ""
 
 def taxid2taxidOnRank( taxID, r ):
-	_checkTaxonomy()
-	rank = getTaxRank(taxID)
-	name = getTaxName(taxID)
+	taxID = _checkTaxonomy( taxID )
+	rank = _getTaxRank(taxID)
+	name = _getTaxName(taxID)
 
 	if r == rank or ( r == 'strain' and rank == 'no rank'): return taxID
 	if r == "root": return 1
@@ -190,9 +206,9 @@ def taxid2taxidOnRank( taxID, r ):
 		if rank.upper() == r.upper(): return taxID
 		if name == 'root': break
 
-		taxID = getTaxParent(taxID)
-		rank = getTaxRank(taxID)
-		name = getTaxName(taxID)
+		taxID = _getTaxParent(taxID)
+		rank = _getTaxRank(taxID)
+		name = _getTaxName(taxID)
 
 	return ""
 
@@ -203,12 +219,12 @@ def taxidIsLeaf( taxID ):
 		return False
 
 def taxid2fullLineage( taxID ):
-	_checkTaxonomy()
+	taxID = _checkTaxonomy( taxID )
 	fullLineage = ""
 
 	while taxID != '1':
-		rank = getTaxRank(taxID)
-		name = getTaxName(taxID)
+		rank = _getTaxRank(taxID)
+		name = _getTaxName(taxID)
 		if not name: break
 		fullLineage += "%s|%s|%s|"%(rank,taxID,name)
 		taxID = taxParents[taxID]
@@ -216,13 +232,13 @@ def taxid2fullLineage( taxID ):
 	return fullLineage
 
 def taxid2fullLinkDict( taxID ):
-	_checkTaxonomy()
+	taxID = _checkTaxonomy( taxID )
 	fullLineage = ""
 	link = {}
 
 	while taxID != '1':
-		rank = getTaxRank(taxID)
-		name = getTaxName(taxID)
+		rank = _getTaxRank(taxID)
+		name = _getTaxName(taxID)
 		if not name: break
 
 		parID = taxParents[taxID]
@@ -232,14 +248,14 @@ def taxid2fullLinkDict( taxID ):
 	return link
 
 def taxid2nearestMajorTaxid( taxID ):
-	_checkTaxonomy()
-	ptid = getTaxParent( taxID )
+	taxID = _checkTaxonomy( taxID )
+	ptid = _getTaxParent( taxID )
 	while ptid != '1':
 		tmp = taxid2rank( ptid )
 		if tmp in major_level:
 			return ptid
 		else:
-			ptid = getTaxParent( ptid )
+			ptid = _getTaxParent( ptid )
 
 	return "1"
 
@@ -250,7 +266,7 @@ def taxid2lineageDICT( tid, print_all_rank=1, print_strain=0, replace_space2unde
 	return _taxid2lineage( tid, print_all_rank, print_strain, replace_space2underscore, output_type )
 
 def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, output_type):
-	_checkTaxonomy()
+	tid = _checkTaxonomy( tid )
 
 	if output_type == "DICT":
 		if tid in tidLineageDict: return tidLineageDict[tid]
@@ -273,7 +289,7 @@ def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, 
 
 	rank = taxid2rank(taxID)
 	orig_rank = rank
-	name = getTaxName(taxID)
+	name = _getTaxName(taxID)
 	str_name = name
 	if replace_space2underscore: str_name.replace(" ", "_")
 
@@ -286,16 +302,16 @@ def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, 
 			info[rank]["name"] = name
 			info[rank]["taxid"] = taxID
 
-		taxID = getTaxParent(taxID)
-		rank = getTaxRank(taxID)
-		name = getTaxName(taxID)
+		taxID = _getTaxParent(taxID)
+		rank = _getTaxRank(taxID)
+		name = _getTaxName(taxID)
 
 		if name == 'root': break
 
 	# try to get the closest "no_rank" taxa to "type" representing subtype/group (mainly for virus)
 	typeTID = taxid2type(tid)
 	if typeTID:
-		info["type"]["name"]  = getTaxName(typeTID)
+		info["type"]["name"]  = _getTaxName(typeTID)
 		info["type"]["taxid"] = typeTID
 
 	last = str_name
@@ -344,16 +360,16 @@ def _taxid2lineage(tid, print_all_rank, print_strain, replace_space2underscore, 
 		tidLineage[tid] = "|".join(lineage)
 		return "|".join(lineage)
 
-def getTaxDepth( taxID ):
+def _getTaxDepth( taxID ):
 	return taxDepths[taxID]
 
-def getTaxName( taxID ):
+def _getTaxName( taxID ):
 	return taxNames[taxID]
 
-def getTaxParent( taxID ):
+def _getTaxParent( taxID ):
 	return taxParents[taxID]
 
-def getTaxRank( taxID ):
+def _getTaxRank( taxID ):
 	return taxRanks[taxID]
 
 #def loadStrainName( custom_taxonomy_file ):
@@ -399,23 +415,114 @@ def loadRefSeqCatelog( refseq_catelog_file, seq_type="nc" ):
 
 def loadTaxonomy( dbpath=taxonomyDir ):
 	global taxonomyDir
-	taxonomyDir = dbpath
+
+	if dbpath:
+		taxonomyDir = dbpath
+
+	if DEBUG: sys.stderr.write( "[INFO] Open taxonomy files from: %s\n"% taxonomyDir )
+
+	#NCBI ftp://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz
+	taxdump_tgz_file = taxonomyDir+"/taxdump.tar.gz"
+
+	#parsed taxonomy tsv file
 	taxonomy_file = taxonomyDir+"/taxonomy.tsv"
 	cus_taxonomy_file = taxonomyDir+"/taxonomy.custom.tsv"
+	merged_taxonomy_file = taxonomyDir+"/taxonomy.merged.tsv"
+
+	#raw taxonomy dmp files from NCBI
 	names_dmp_file = taxonomyDir+"/names.dmp"
 	nodes_dmp_file = taxonomyDir+"/nodes.dmp"
+	merged_dmp_file = taxonomyDir+"/merged.dmp"
 
-	if DEBUG: sys.stderr.write( "[INFO] Open taxonomy file: %s\n"% taxonomy_file )
-	if DEBUG: sys.stderr.write( "[INFO] Open custom taxonomy file: %s\n"% taxonomy_file )
-
-	taxfiles = []
-	if os.path.isfile( taxonomy_file ):     taxfiles.append(taxonomy_file)
-	if os.path.isfile( cus_taxonomy_file ): taxfiles.append(cus_taxonomy_file)
-
-	# try to load from taxonomy.tsv first
-	if len(taxfiles):
+	# try to load taxonomy from taxonomy.tsv
+	if os.path.isfile( taxdump_tgz_file ):
 		try:
-			with fileinput.input( files=taxfiles ) as f:
+			if DEBUG: sys.stderr.write( "[INFO] Open taxonomy file: %s\n"%taxdump_tgz_file )
+			tar = tarfile.open(taxdump_tgz_file, "r:gz")
+			# read name from names.dmp
+			if DEBUG: sys.stderr.write( "[INFO] Extract taxonomy names file: names.dmp\n" )
+			member = tar.getmember("names.dmp")
+			f = tar.extractfile(member)
+			for line in f.readlines():
+				tid, name, tmp, nametype = line.decode('utf8').rstrip('\r\n').split('\t|\t')
+				if not nametype.startswith("scientific name"):
+					continue 
+				taxNames[tid] = name
+			f.close()
+			
+			# read taxonomy info from nodes.dmp
+			if DEBUG: sys.stderr.write( "[INFO] Extract taxonomy nodes file: nodes.dmp\n" )
+			member = tar.getmember("nodes.dmp")
+			f = tar.extractfile(member)
+			for line in f.readlines():
+				fields = line.decode('utf8').rstrip('\r\n').split('\t|\t')
+				tid = fields[0]
+				parent = fields[1]
+				taxParents[tid] = parent
+				taxDepths[tid] = taxDepths[parent]+1 if parent in taxDepths else 0 # could have potiential bug if child node is parsed before parent node.
+				taxRanks[tid] = fields[2]
+				if parent in taxNumChilds:
+					taxNumChilds[parent] += 1
+				else:
+					taxNumChilds[parent] = 1
+			f.close()
+			
+			if DEBUG: sys.stderr.write( "[INFO] Extract merged taxonomy node file: merged.dmp\n")
+			member = tar.getmember("merged.dmp")
+			f = tar.extractfile(member)
+			for line in f.readlines():
+				fields = line.decode('utf8').rstrip('\r\n').replace("\t","").split('|')
+				mtid = fields[0]
+				tid = fields[1]
+				taxMerged[mtid] = tid
+			f.close()
+
+		except IOError:
+			_die( "Failed to load taxonomy from %s\n"%taxdump_tgz_file )
+	elif os.path.isfile( names_dmp_file ):
+		try:
+			# read name from names.dmp
+			if DEBUG: sys.stderr.write( "[INFO] Open taxonomy name file: %s\n"% names_dmp_file )
+			with open(names_dmp_file) as f:
+				for line in f:
+					tid, name, tmp, nametype = line.rstrip('\r\n').split('\t|\t')
+					if not nametype.startswith("scientific name"):
+						continue 
+					taxNames[tid] = name
+				f.close()
+			
+			# read taxonomy info from nodes.dmp
+			if DEBUG: sys.stderr.write( "[INFO] Open taxonomy node file: %s\n"% nodes_dmp_file )
+			with open(nodes_dmp_file) as f:
+				for line in f:
+					fields = line.rstrip('\r\n').split('\t|\t')
+					tid = fields[0]
+					parent = fields[1]
+					taxParents[tid] = parent
+					taxDepths[tid] = taxDepths[parent]+1 if parent in taxDepths else 0 # could have potiential bug if child node is parsed before parent node.
+					taxRanks[tid] = fields[2]
+					if parent in taxNumChilds:
+						taxNumChilds[parent] += 1
+					else:
+						taxNumChilds[parent] = 1
+				f.close()
+
+			if os.path.isfile( merged_dmp_file ):
+				if DEBUG: sys.stderr.write( "[INFO] Open merged taxonomy node file: %s\n"% merged_dmp_file )
+				with open(merged_dmp_file) as f:
+					for line in f:
+						if not line: next
+						fields = line.rstrip('\r\n').replace("\t","").split('|')
+						mtid = fields[0]
+						tid = fields[1]
+						taxMerged[mtid] = tid
+					f.close()
+		except IOError:
+			_die( "Failed to open taxonomy files (taxonomy.tsv, nodes.dmp and names.dmp).\n" )
+	elif os.path.isfile( taxonomy_file ):
+		if DEBUG: sys.stderr.write( "[INFO] Open taxonomy file: %s\n"% taxonomy_file )
+		try:
+			with open(taxonomy_file) as f:
 				for line in f:
 					tid, depth, parent, rank, name = line.rstrip('\r\n').split('\t')
 					taxParents[tid] = parent
@@ -427,40 +534,41 @@ def loadTaxonomy( dbpath=taxonomyDir ):
 					else:
 						taxNumChilds[parent] = 1
 				f.close()
+	
+			#try to load merged taxids
+			if os.path.isfile( merged_taxonomy_file ):
+				if DEBUG: sys.stderr.write( "[INFO] Open merged taxonomy node file: %s\n"% merged_taxonomy_file )
+				with open(merged_taxonomy_file) as f:
+					for line in f:
+						if not line: next
+						mtid, tid = line.rstrip('\r\n').split('\t')
+						taxMerged[mtid] = tid
+					f.close()
 		except IOError:
 			_die( "Failed to open taxonomy file: %s.\n" % taxonomy_file )
-	else:
+	
+	# try to load custom taxonomy from taxonomy.custom.tsv
+	if os.path.isfile( cus_taxonomy_file ):
+		if DEBUG: sys.stderr.write( "[INFO] Open custom taxonomy node file: %s\n"% cus_taxonomy_file)
 		try:
-			# read name from names.dmp
-			with open(names_dmp_file) as f:
+			with open(cus_taxonomy_file) as f:
 				for line in f:
-					tid, name, tmp, nametype = line.rstrip('\r\n').split('\t|\t')
-					if not nametype.startswith("scientific name"):
-						continue 
+					if not line: next
+					if line in ['\n', '\r\n']: next
+					tid, depth, parent, rank, name = line.rstrip('\r\n').split('\t')
+					taxParents[tid] = parent
+					taxDepths[tid] = depth
+					taxRanks[tid] = rank
 					taxNames[tid] = name
-				f.close()
-			
-			# read taxonomy info from nodes.dmp
-			with open(nodes_dmp_file) as f:
-				for line in f:
-					fields = line.rstrip('\r\n').split('\t|\t')
-					tid = fields[0]
-					parent = fields[2]
-					taxParents[tid] = fields[1]
-					taxDepths[tid] = 0
-					taxRanks[tid] = parent
 					if parent in taxNumChilds:
-						taxNumChilds[tid] += 1
+						taxNumChilds[parent] += 1
 					else:
-						taxNumChilds[tid] = 1
+						taxNumChilds[parent] = 1
 				f.close()
 		except IOError:
-			_die( "Failed to open taxonomy files (taxonomy.tsv, nodes.dmp and names.dmp).\n" )
+			_die( "Failed to open custom taxonomy file: %s.\n" % cus_taxonomy_file )
 
 	if DEBUG: sys.stderr.write( "[INFO] Done parsing taxonomy.tab (%d taxons loaded)\n" % len(taxParents) )
-
-	if taxParents["2"] == "1":
-		_die( "Local taxonomy database is out of date. Update using updateTaxonomy.sh." )
 
 ##########################
 ##  Internal functions  ##
@@ -478,12 +586,20 @@ class _autoVivification(dict):
 def _die( msg ):
 	sys.exit(msg)
 
-def _checkTaxonomy():
+def _checkTaxonomy(taxID="", acc=""):
 	if not len(taxParents):
 		_die("Taxonomy not loaded. \"loadTaxonomy()\" must be called first.\n")
 
+	if taxID:
+		if taxID in taxMerged:
+			return taxMerged[taxID]
+		else:
+			return taxID
+
 if __name__ == '__main__':
-	loadTaxonomy()
+	#loading taxonomy
+	loadTaxonomy( sys.argv[1] if len(sys.argv) > 1 else None )
+
 	print("Enter acc/taxid:")
 
 	for inid in sys.stdin:
@@ -496,23 +612,23 @@ if __name__ == '__main__':
 			print( "acc2taxid( %s ) => %s"   % (inid, taxid) )
 
 		if taxid:
-			print( "taxid2name( %s )  => %s" % (taxid, taxid2name(taxid)) )
-			print( "taxid2rank( %s )  => %s" % (taxid, taxid2rank(taxid)) )
-			print( "taxid2type( %s )  => %s" % (taxid, taxid2type(taxid)) )
-			print( "taxid2depth( %s )  => %s" % (taxid, taxid2depth(taxid)) )
-			print( "taxid2parent( %s )  => %s" % (taxid, taxid2parent(taxid)) )
-			print( "taxidIsLeaf( %s ) => %s" % (taxid, taxidIsLeaf(taxid)) )
-			print( "taxid2nearestMajorTaxida( %s ) => %s" % (taxid, taxid2nearestMajorTaxid(taxid)) )
+			print( "taxid2name( %s )                 => %s" % (taxid, taxid2name(taxid)) )
+			print( "taxid2rank( %s )                 => %s" % (taxid, taxid2rank(taxid)) )
+			print( "taxid2type( %s )                 => %s" % (taxid, taxid2type(taxid)) )
+			print( "taxid2depth( %s )                => %s" % (taxid, taxid2depth(taxid)) )
+			print( "taxid2parent( %s )               => %s" % (taxid, taxid2parent(taxid)) )
+			print( "taxidIsLeaf( %s )                => %s" % (taxid, taxidIsLeaf(taxid)) )
+			print( "taxid2nearestMajorTaxida( %s )   => %s" % (taxid, taxid2nearestMajorTaxid(taxid)) )
 			print( "taxid2nameOnRank( %s, 'genus')   => %s" % (taxid, taxid2nameOnRank(taxid, "genus")) )
 			print( "taxid2taxidOnRank( %s, 'genus')  => %s" % (taxid, taxid2taxidOnRank(taxid, "genus")) )
 			print( "taxid2nameOnRank( %s, 'phylum')  => %s" % (taxid, taxid2nameOnRank(taxid, "phylum")) )
 			print( "taxid2taxidOnRank( %s, 'phylum') => %s" % (taxid, taxid2taxidOnRank(taxid, "phylum")) )
-			print( "\n" )
-			print( "taxid2lineage( %s )      => %s\n" %      (taxid, taxid2lineage(taxid)) )
-			print( "taxid2lineageDICT( %s )  => %s\n" %      (taxid, taxid2lineageDICT(taxid)) )
-			print( "taxid2fullLineage( %s )  => %s\n" %      (taxid, taxid2fullLineage(taxid)) )
-			print( "taxid2fullLinkDict( %s ) => %s\n" %      (taxid, taxid2fullLinkDict(taxid)) )
+			print( "taxid2lineage( %s )              => %s" % (taxid, taxid2lineage(taxid)) )
+			print( "taxid2lineageDICT( %s, 1, 1 )    => %s" % (taxid, taxid2lineageDICT(taxid,1,1)) )
+			print( "taxid2fullLineage( %s )          => %s" % (taxid, taxid2fullLineage(taxid)) )
+			print( "taxid2fullLinkDict( %s )         => %s" % (taxid, taxid2fullLinkDict(taxid)) )
 		else:
 			print( "No taxid found.\n" )
 
 		print("Enter acc/taxid:")
+
