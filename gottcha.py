@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.0.1 BETA"
+__version__   = "2.0.2 BETA"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -582,7 +582,8 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml ):
 			note = ""
 			note += "Filtered out (minCov > %.2f); "%(res_rollup[tid]["LL"]/db_stats[tid]) if rank == "strain" and tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid] else ""
 			note += "Filtered out (minReads > %s); "%res_rollup[tid]["MR"] if mr > int(res_rollup[tid]["MR"]) else ""
-			note += "Filtered out (minLen > %s); "  %res_rollup[tid]["LL"] if ml > int(res_rollup[tid]["LL"]) else ""
+			note += "Filtered out (minLen > %s); "%res_rollup[tid]["LL"] if ml > int(res_rollup[tid]["LL"]) else ""
+			note += "Filtered out (minMLHL > %.2f); "%(res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) if ml > (res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) else ""
 			note += "Not shown (%s-result biased); "%rank if major_ranks[rank] > major_ranks[tg_rank] else ""
 
 			# additional fileds for full mode
