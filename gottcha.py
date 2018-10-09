@@ -95,13 +95,16 @@ def parse_params( ver ):
 	p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
 					help="Minimum unique length to be considered valid in abundance calculation [default: 60]")
 
+	p.add_argument( '-mh','--minMLHL', metavar='<INT>', type=int, default=5,
+					help="Minimum mean linear hit length [default: 5]")
+
 	p.add_argument( '-nc','--noCutoff', action="store_true",
 					help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0].")
 
 	p.add_argument( '-c','--stdout', action="store_true",
 					help="Write on standard output.")
 
-	p.add_argument( '-v','--version', action="store_true",
+	eg.add_argument( '-v','--version', action="store_true",
 					help="Print version number.")
 
 	p.add_argument( '--silent', action="store_true",
@@ -116,8 +119,8 @@ def parse_params( ver ):
 	Checking options
 	"""
 	if args_parsed.version:
-		print(__version__)
-		sys.exit(0)
+		print( ver )
+		os._exit(0)
 
 	if not args_parsed.database:
 		p.error( '--database option is missing.' )
@@ -422,7 +425,7 @@ def seqReverseComplement( seq ):
 	seq_dict = { seq1[i]:seq1[i+16] for i in range(64) if i < 16 or 32<=i<48 }
 	return "".join([seq_dict[base] for base in reversed(seq)])
 
-def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml ):
+def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 	"""
 	Take parsed SAM output and rollup to superkingdoms
 	"""
@@ -470,7 +473,10 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml ):
 	# roll strain results to upper levels
 	for stid in allStrTaxid:
 		# apply cutoffs strain level and rollup to higher levels		
-		if mc > res_rollup[stid]["LL"]/db_stats[stid] or mr > res_rollup[stid]["MR"] or ml > res_rollup[stid]["LL"]:
+		if mc > res_rollup[stid]["LL"]/db_stats[stid] or \
+		    mr > res_rollup[stid]["MR"] or \
+		    ml > res_rollup[stid]["LL"] or \
+		    mh > res_rollup[stid]["LL"]/res_rollup[stid]["MR"]:
 		   continue
 	
 		tree = gt.taxid2fullLinkDict( stid )
@@ -771,6 +777,7 @@ if __name__ == '__main__':
 	print_message( "    Minimal L_DOC    : %s" % argvs.minCov,    argvs.silent, begin_t, logfile )
 	print_message( "    Minimal L_LEN    : %s" % argvs.minLen,    argvs.silent, begin_t, logfile )
 	print_message( "    Minimal reads    : %s" % argvs.minReads,  argvs.silent, begin_t, logfile )
+	print_message( "    Minimal MLHL     : %s" % argvs.minMLHL,  argvs.silent, begin_t, logfile )
 	print_message( "    BWA path         : %s" % dependency_check("bwa"),       argvs.silent, begin_t, logfile )
 
 	#load taxonomy
@@ -811,7 +818,7 @@ if __name__ == '__main__':
 		(res, mapped_r_cnt) = processSAMfile( os.path.abspath(samfile), argvs.threads, lines_per_process)
 		print_message( "Done processing SAM file. %s reads mapped." % mapped_r_cnt, argvs.silent, begin_t, logfile )
 
-		(res_rollup, res_tree) = taxonomyRollUp( res, db_stats, argvs.relAbu, argvs.minCov, argvs.minReads, argvs.minLen )
+		(res_rollup, res_tree) = taxonomyRollUp( res, db_stats, argvs.relAbu, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLHL )
 		print_message( "Done taxonomy rolling up.", argvs.silent, begin_t, logfile )
 
 		if argvs.mode == 'summary' or argvs.mode == 'full':
