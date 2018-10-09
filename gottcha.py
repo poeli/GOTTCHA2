@@ -166,7 +166,7 @@ def parse_params( ver ):
 
 	if not args_parsed.dbLevel:
 		if args_parsed.database:
-			major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7}
+			major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7, "strain":8}
 			parts = args_parsed.database.split('.')
 			for part in parts:
 				if part in major_ranks:
