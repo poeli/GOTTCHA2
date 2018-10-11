@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.0.2 BETA"
+__version__   = "2.0.2.1 BETA"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -95,8 +95,8 @@ def parse_params( ver ):
 	p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
 					help="Minimum unique length to be considered valid in abundance calculation [default: 60]")
 
-	p.add_argument( '-mh','--minMLHL', metavar='<INT>', type=int, default=5,
-					help="Minimum mean linear hit length [default: 5]")
+	p.add_argument( '-mh','--minMLHL', metavar='<INT>', type=int, default=2.5,
+					help="Minimum mean linear hit length [default: 2.5]")
 
 	p.add_argument( '-nc','--noCutoff', action="store_true",
 					help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0].")
@@ -527,7 +527,7 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 
 	return res_rollup, res_tree
 
-def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml ):
+def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 	output = gt._autoVivification()
 	major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7,"strain":8}
 	
@@ -583,7 +583,7 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml ):
 			note += "Filtered out (minCov > %.2f); "%(res_rollup[tid]["LL"]/db_stats[tid]) if rank == "strain" and tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid] else ""
 			note += "Filtered out (minReads > %s); "%res_rollup[tid]["MR"] if mr > int(res_rollup[tid]["MR"]) else ""
 			note += "Filtered out (minLen > %s); "%res_rollup[tid]["LL"] if ml > int(res_rollup[tid]["LL"]) else ""
-			note += "Filtered out (minMLHL > %.2f); "%(res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) if ml > (res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) else ""
+			note += "Filtered out (minMLHL > %.2f); "%(res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) if mh > (res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) else ""
 			note += "Not shown (%s-result biased); "%rank if major_ranks[rank] > major_ranks[tg_rank] else ""
 
 			# additional fileds for full mode
@@ -660,11 +660,11 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml ):
 
 # 			outputResultsAsTree( cid, res_tree, res_rollup, indent, dbLevel, lvlFlag, taxid_fi, o, mc, mr, ml )
 
-def outputResultsAsLineage( res_rollup, o, tg_rank, mode, mc, mr, ml ):
+def outputResultsAsLineage( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 	for tid in res_rollup:
 		rank = gt.taxid2rank(tid)
 
-		if rank != tg_rank or ( mc > res_rollup[tid]["LL"]/res_rollup[tid]["SL"] or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]) ):
+		if rank != tg_rank or ( mh > res_rollup[tid]["LL"]/res_rollup[tid]["MR"] or mc > res_rollup[tid]["LL"]/res_rollup[tid]["SL"] or mr > int(res_rollup[tid]["MR"]) or ml > int(res_rollup[tid]["LL"]) ):
 			continue
 
 		o.write( "%s\t%s\n" %
@@ -823,11 +823,11 @@ if __name__ == '__main__':
 		print_message( "Done taxonomy rolling up.", argvs.silent, begin_t, logfile )
 
 		if argvs.mode == 'summary' or argvs.mode == 'full':
-			outputResultsAsRanks( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen )
+			outputResultsAsRanks( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLHL )
 		elif argvs.mode == 'tree':
 			pass
 			#outputResultsAsTree( "1", res_tree, res_rollup, "", argvs.dbLevel, 0, argvs.taxonomy, out_fp, argvs.minCov, argvs.minReads, argvs.minLen )
 		elif argvs.mode == 'lineage':
-			outputResultsAsLineage( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen )
+			outputResultsAsLineage( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLHL )
 
 		print_message( "Done taxonomy profiling; %s results printed to %s." % (argvs.mode, outfile), argvs.silent, begin_t, logfile )
