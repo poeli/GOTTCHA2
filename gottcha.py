@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.0.2.1 BETA"
+__version__   = "2.1.0 BETA"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -36,32 +36,32 @@ def parse_params( ver ):
 	p = ap.ArgumentParser( prog='gottcha.py', description="""Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an
 			annotation-independent and signature-based metagenomic taxonomic profiling tool
 			that has significantly smaller FDR than other profiling tools. This program
-			is a wrapper to map input reads to pre-computed signature databases using BWA-MEM
+			is a wrapper to map input reads to pre-computed signature databases using minimap2
 			and/or to profile mapped reads in SAM format. (VERSION: %s)""" % ver)
 
 	eg = p.add_mutually_exclusive_group( required=True )
 
 	eg.add_argument( '-i','--input', metavar='[FASTQ]', nargs='+', type=str,
-	  				help="Input one or multiple FASTQ file(s). Use space to separate multiple input files.")
+					help="Input one or multiple FASTQ file(s). Use space to separate multiple input files.")
 
 	eg.add_argument( '-s','--sam', metavar='[SAMFILE]', nargs=1, type=ap.FileType('r'),
 					help="Specify the input SAM file. Use '-' for standard input.")
 
-	p.add_argument( '-d','--database', metavar='[BWA_INDEX]', type=str, default=None,
-	                help="The path of signature database. The database can be in FASTA format or BWA index (5 files).")
+	p.add_argument( '-d','--database', metavar='[MINIMAP2_INDEX]', type=str, default=None,
+					help="The path of signature database. The database can be in FASTA format or minimap2 index (5 files).")
 
 	p.add_argument( '-l','--dbLevel', metavar='[LEVEL]', type=str, default='',
-	                choices=['superkingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'strain'],
-	                help="""Specify the taxonomic level of the input database. You can choose one rank from "superkingdom", "phylum", "class", "order", "family", "genus", "species" and "strain". The value will be auto-detected if the input database ended with levels (e.g. GOTTCHA_db.species).""")
+					choices=['superkingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'strain'],
+					help="""Specify the taxonomic level of the input database. You can choose one rank from "superkingdom", "phylum", "class", "order", "family", "genus", "species" and "strain". The value will be auto-detected if the input database ended with levels (e.g. GOTTCHA_db.species).""")
 
 	p.add_argument( '-ti','--taxInfo', metavar='[FILE]', type=str, default='',
-	                help="""Specify the path of taxonomy information file (taxonomy.tsv). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
+					help="""Specify the path of taxonomy information file (taxonomy.tsv). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
 
 	p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=5,
 					help="Mismatch penalty for BWA-MEM (pass to option -B while BWA-MEM is running). You can use 99 for not allowing mismatch in alignments (except for extreme cases). [default: 5]")
 
 	p.add_argument( '-m','--mode', type=str, default='summary',
-	                choices=['summary', 'full', 'class', 'extract', 'lineage'],
+					choices=['summary', 'full', 'class', 'extract', 'lineage'],
 					help="""You can specify one of the following output modes:
                             "summary" : report a summary of profiling result;
                             "full"    : other than a summary result, this mode will report unfiltered profiling results with more detail;
@@ -71,7 +71,7 @@ def parse_params( ver ):
 						  Note that only results/reads belongs to descendants of TAXID will be reported/extracted if option [--taxonomy TAXID] is specified. [default: summary]""" )
 
 	p.add_argument( '-x','--taxonomy', metavar='[TAXID]', type=str,
-	        		help="Specify a NCBI taxonomy ID. The program  will only report/extract the taxonomy you specified.")
+					help="Specify a NCBI taxonomy ID. The program  will only report/extract the taxonomy you specified.")
 
 	p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='ROLLUP_DOC',
 					choices=['ROLLUP_DOC','READ_COUNT','TOTAL_BP_MAPPED'],
@@ -95,8 +95,8 @@ def parse_params( ver ):
 	p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
 					help="Minimum unique length to be considered valid in abundance calculation [default: 60]")
 
-	p.add_argument( '-mh','--minMLHL', metavar='<INT>', type=int, default=2.5,
-					help="Minimum mean linear hit length [default: 2.5]")
+	p.add_argument( '-mh','--minMLRL', metavar='<INT>', type=float, default=1,
+					help="Minimum mean linear read length [default: 1]")
 
 	p.add_argument( '-nc','--noCutoff', action="store_true",
 					help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0].")
@@ -108,8 +108,8 @@ def parse_params( ver ):
 					help="Print version number.")
 
 	p.add_argument( '--silent', action="store_true",
-	                help="Disable all messages.")
-	
+					help="Disable all messages.")
+
 	p.add_argument( '--debug', action="store_true",
 					help="Debug mode. Provide verbose running messages and keep all temporary files.")
 
@@ -130,21 +130,16 @@ def parse_params( ver ):
 
 	if args_parsed.database:
 		#assign default path for database name
-		if "/" not in args_parsed.database and not os.path.isfile( args_parsed.database + ".amb" ):
+		if "/" not in args_parsed.database and not os.path.isfile( args_parsed.database + ".mmi" ):
 			bin_dir = os.path.dirname(os.path.realpath(__file__))
 			args_parsed.database = bin_dir + "/database/" + args_parsed.database
 
+	if args_parsed.database and args_parsed.database.endswith(".mmi"):
+		args_parsed.database.replace('.mmi','')
+
 	if args_parsed.database and args_parsed.input:
-		if not os.path.isfile( args_parsed.database + ".amb" ):
-			p.error( 'Incorrect BWA index: missing %s.amb.' % args_parsed.database )
-		if not os.path.isfile( args_parsed.database + ".ann" ):
-			p.error( 'Incorrect BWA index: missing %s.ann.' % args_parsed.database )
-		if not os.path.isfile( args_parsed.database + ".pac" ):
-			p.error( 'Incorrect BWA index: missing %s.pac.' % args_parsed.database )
-		if not os.path.isfile( args_parsed.database + ".bwt" ):
-			p.error( 'Incorrect BWA index: missing %s.bwt.' % args_parsed.database )
-		if not os.path.isfile( args_parsed.database + ".sa" ):
-			p.error( 'Incorrect BWA index: missing %s.sa.' % args_parsed.database )
+		if not os.path.isfile( args_parsed.database + ".mmi" ):
+			p.error( 'Database index %s.mmi not found.' % args_parsed.database )
 
 	if not args_parsed.taxInfo:
 		if args_parsed.database:
@@ -192,22 +187,15 @@ def dependency_check(cmd):
 	return outs.decode().rstrip() if proc.returncode == 0 else False
 
 def join_ranges(intervals):
-	sorted_by_lower_bound = sorted(intervals, key=lambda tup: tup[0])
-	merged = []
-	
-	for higher in sorted_by_lower_bound:
-	    if not merged:
-	        merged.append(higher)
-	    else:
-	        lower = merged[-1]
-	        # test for intersection between lower and higher:
-	        # we know via sorting that lower[0] <= higher[0]
-	        if higher[0] <= lower[1]:
-	            upper_bound = max(lower[1], higher[1])
-	            merged[-1] = [lower[0], upper_bound]  # replace by merged interval
-	        else:
-	            merged.append(higher)
-	return merged
+	s = sorted(intervals, key=lambda t: t[0])
+	m = 0
+	for t in s:
+		if t[0] > s[m][1]:
+			m += 1
+			s[m] = t
+		else:
+			s[m] = [s[m][0], t[1]]
+	return s[:m+1]
 
 def worker(filename, chunkStart, chunkSize):
 	"""Make a dict out of the parsed, supplied lines"""
@@ -215,22 +203,27 @@ def worker(filename, chunkStart, chunkSize):
 	f = open( filename )
 	f.seek(chunkStart)
 	lines = f.read(chunkSize).splitlines()
-
-	res = gt._autoVivification()
+	res={}
 
 	for line in lines:
-		k, r, n, rd, rs, rq, flag, cigr = parse(line)
+		k, r, n, rd, rs, rq, flag, cigr, pri_aln_flag = parse(line)
 		if k in res:
 			res[k]["ML"] = join_ranges( res[k]["ML"] + [r] )
-			res[k]["MB"] += r[1] - r[0] + 1
-			res[k]["MR"] += 1
-			res[k]["NM"] += n
+			if pri_aln_flag:
+				res[k]["MB"] += r[1] - r[0] + 1
+				res[k]["MR"] += 1
+				res[k]["NM"] += n
 		else:
+			res[k]={}
 			res[k]["ML"] = [r]
-			res[k]["MB"] = r[1] - r[0] + 1
-			res[k]["MR"] = 1
-			res[k]["NM"] = n
-
+			if pri_aln_flag:
+				res[k]["MB"] = r[1] - r[0] + 1
+				res[k]["MR"] = 1
+				res[k]["NM"] = n
+			else:
+				res[k]["MB"] = 0
+				res[k]["MR"] = 0
+				res[k]["NM"] = 0
 	return res
 
 def parse(line):
@@ -249,7 +242,9 @@ def parse(line):
 	ref = temp[2].rstrip('|')
 	ref = ref[: -2 if ref.endswith(".0") else None ]
 
-	return ref, [start, end], int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5]
+	primary_alignment_flag=False if int(temp[1]) & 256 else True
+
+	return ref, [start, end], int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag
 
 def timeSpend( start ):
 	done = time.time()
@@ -264,12 +259,16 @@ def chunkify(fname, size=1*1024*1024):
 			chunkStart = chunkEnd
 			f.seek(size, 1)
 			f.readline()
-			# put paired-end reads in the same chunck
+			# put all alignments of a read in the same chunck
 			line = f.readline().decode('ascii')
+			tmp = line.split('\t')
 			if chunkEnd <= fileEnd and line:
-				tmp = line.split('\t')
-				if int(tmp[1]) & 1 and int(tmp[1]) & 64:
-					f.readline()
+				last = f.tell()
+				line = f.readline().decode('ascii')
+				while line.startswith(tmp[0]):
+					last = f.tell()
+					line = f.readline().decode('ascii')
+				f.seek(last)
 			# current position
 			chunkEnd = f.tell()
 			yield chunkStart, chunkEnd - chunkStart
@@ -307,11 +306,10 @@ def chunkify(fname, size=1*1024*1024):
 
 # 	return result, mapped_reads
 
-
 def processSAMfile( sam_fn, numthreads, numlines ):
 	result = gt._autoVivification()
 	mapped_reads = 0
-	
+
 	#clean memory
 	gc.collect()
 
@@ -338,19 +336,24 @@ def processSAMfile( sam_fn, numthreads, numlines ):
 	for res in results:
 		for k in res:
 			if k in result:
-				result[k]["ML"] = join_ranges( result[k]["ML"] + res[k]["ML"] )
+				result[k]["ML"] = join_ranges(result[k]["ML"] + res[k]["ML"])
 				result[k]["MB"] += res[k]["MB"]
 				result[k]["MR"] += res[k]["MR"]
 				result[k]["NM"] += res[k]["NM"]
 			else:
+				result[k]={}
 				result[k].update(res[k])
 
 	# convert mapped regions to linear length
-	for k in result:
-		result[k]["LL"] = 0
-		mapped_reads += result[k]["MR"]
-		for cr in result[k]["ML"]:
-			result[k]["LL"] += cr[1]-cr[0]
+	refs = result.keys()
+	for k in list(refs):
+		if not result[k]["MR"]:
+			del result[k]
+		else:
+			result[k]["LL"] = 0
+			mapped_reads += result[k]["MR"]
+			for cr in result[k]["ML"]:
+				result[k]["LL"] += cr[1]-cr[0]
 
 	return result, mapped_reads
 
@@ -363,7 +366,7 @@ def isDescendant( taxid, taxid_ant ):
 
 def processSAMfileReadClass( f, o, tg_rank, taxid_fi ):
 	for line in f:
-		ref, region, nm, rname, rseq, rq, flag, cigr = parse(line)
+		ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
 		acc, start, stop, tid = ref.split('|')
 
 		if taxid_fi:
@@ -402,7 +405,10 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
 	f.seek(chunkStart)
 	lines = f.read(chunkSize).splitlines()
 	for line in lines:
-		ref, region, nm, rname, rseq, rq, flag, cigr = parse(line)
+		ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
+		
+		if not pri_aln_flag: next
+
 		acc, start, stop, t = ref.split('|')
 		fullLineage = gt.taxid2fullLineage(t)
 
@@ -566,7 +572,8 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 			"REL_ABU_ROLLUP_DOC",
 			"REL_ABU_READ_COUNT",
 			"REL_ABU_TOL_BP_MAPPED",
-			"NOTE"
+			"NOTE",
+			"MLRL"
 			]) if mode == "full" else ""
 
 	# essential fields
@@ -583,11 +590,11 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 			note += "Filtered out (minCov > %.2f); "%(res_rollup[tid]["LL"]/db_stats[tid]) if rank == "strain" and tid in db_stats and mc > res_rollup[tid]["LL"]/db_stats[tid] else ""
 			note += "Filtered out (minReads > %s); "%res_rollup[tid]["MR"] if mr > int(res_rollup[tid]["MR"]) else ""
 			note += "Filtered out (minLen > %s); "%res_rollup[tid]["LL"] if ml > int(res_rollup[tid]["LL"]) else ""
-			note += "Filtered out (minMLHL > %.2f); "%(res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) if mh > (res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) else ""
+			note += "Filtered out (minMLRL > %.2f); "%(res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) if mh > (res_rollup[tid]["LL"]/res_rollup[tid]["MR"]) else ""
 			note += "Not shown (%s-result biased); "%rank if major_ranks[rank] > major_ranks[tg_rank] else ""
 
 			# additional fileds for full mode
-			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%.4f\t%.4f\t%.4f\t%s" % (
+			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%.4f\t%.4f\t%.4f\t%s\t%.4f" % (
 			    res_rollup[tid]["LL"]/res_rollup[tid]["TS"],
 			    res_rollup[tid]["LL"]/res_rollup[tid]["SL"],
 			    res_rollup[tid]["bLC"],
@@ -599,7 +606,8 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 				res_rollup[tid]["RD"]/tol_abu["ROLLUP_DOC"] if tol_abu["ROLLUP_DOC"] else 0,
 				res_rollup[tid]["MR"]/tol_abu["READ_COUNT"] if tol_abu["READ_COUNT"] else 0,
 				res_rollup[tid]["MB"]/tol_abu["TOTAL_BP_MAPPED"] if tol_abu["TOTAL_BP_MAPPED"] else 0,
-			    note
+			    note,
+				res_rollup[tid]["LL"]/res_rollup[tid]["MR"]
 			    #res_rollup[tid]["ML"]
 			) if mode == "full" else ""
 
@@ -669,7 +677,7 @@ def outputResultsAsLineage( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 
 		o.write( "%s\t%s\n" %
 			( res_rollup[tid]["ABU"],
-			  '\t'.join( gt.taxid2lineage(tid).split('|') )
+			'\t'.join( gt.taxid2lineage(tid).split('|') )
 			)
 		)
 
@@ -681,15 +689,16 @@ def readMapping( reads, db, threads, mm_penalty, samfile, logfile ):
 	input_file = " ".join(reads)
 
 	bash_cmd   = "set -o pipefail; set -x;"
-	bwa_cmd    = "bwa mem -k30 -T30 -A1 -B%s -O99 -E99 -L0 -t%s %s %s" % (mm_penalty, threads, db, input_file )
-	filter_cmd = "gawk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048){print $_}'"
-	cmd        = "%s %s 2>> %s | %s > %s" % ( bash_cmd, bwa_cmd, logfile, filter_cmd, samfile )
+	#mm2_cmd    = "minimap2 -x sr -k24 -A1 -B%s -O30 -E30 -a -n1 -m24 -s30 --second=yes -p1 -t%s %s.mmi %s" % (mm_penalty, threads, db, input_file )
+	mm2_cmd    = "minimap2 -x sr -k24 -A1 -B%s -O30 -E30 -a -n1 -m24 -s30 -p1 -t%s %s.mmi %s" % (mm_penalty, threads, db, input_file )
+	filter_cmd = "gawk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048) { if(r!=$1.and($2,64)){r=$1.and($2,64); s=$14} if($14==s){print} }'"
+	cmd        = "%s %s 2>> %s | %s > %s" % ( bash_cmd, mm2_cmd, logfile, filter_cmd, samfile )
 
 	proc = subprocess.Popen( cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 	outs, errs = proc.communicate()
 	exitcode = proc.poll()
 
-	return exitcode, bwa_cmd, errs
+	return exitcode, mm2_cmd, errs
 
 def loadDatabaseStats( db_stats_file ):
 	"""
@@ -734,11 +743,10 @@ def print_message(msg, silent, start, logfile, errorout=0):
 if __name__ == '__main__':
 	argvs    = parse_params( __version__ )
 	begin_t  = time.time()
-	numlines = 10000
 	sam_fp   = argvs.sam[0] if argvs.sam else ""
 	samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
 	logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
-	lines_per_process = 15000
+	lines_per_process = 10000
 	
 	print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
 
@@ -746,8 +754,11 @@ if __name__ == '__main__':
 	if sys.version_info < (3,0):
 		sys.exit("[ERROR] Python 3.0 or above is required.")
 
-	if not dependency_check("bwa"):
-		sys.exit("[ERROR] Executable bwa not found.")
+	if not dependency_check("minimap2"):
+		sys.exit("[ERROR] Executable minimap2 not found.")
+
+	if not dependency_check("gawk"):
+		sys.exit("[ERROR] Executable gawk not found.")
 
 	#prepare output object
 	out_fp = sys.stdout
@@ -778,8 +789,8 @@ if __name__ == '__main__':
 	print_message( "    Minimal L_DOC    : %s" % argvs.minCov,    argvs.silent, begin_t, logfile )
 	print_message( "    Minimal L_LEN    : %s" % argvs.minLen,    argvs.silent, begin_t, logfile )
 	print_message( "    Minimal reads    : %s" % argvs.minReads,  argvs.silent, begin_t, logfile )
-	print_message( "    Minimal MLHL     : %s" % argvs.minMLHL,  argvs.silent, begin_t, logfile )
-	print_message( "    BWA path         : %s" % dependency_check("bwa"),       argvs.silent, begin_t, logfile )
+	print_message( "    Minimal MLHL     : %s" % argvs.minMLRL,  argvs.silent, begin_t, logfile )
+	print_message( "    Minimap2 path    : %s" % dependency_check("minimap2"),       argvs.silent, begin_t, logfile )
 
 	#load taxonomy
 	print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
@@ -819,15 +830,15 @@ if __name__ == '__main__':
 		(res, mapped_r_cnt) = processSAMfile( os.path.abspath(samfile), argvs.threads, lines_per_process)
 		print_message( "Done processing SAM file. %s reads mapped." % mapped_r_cnt, argvs.silent, begin_t, logfile )
 
-		(res_rollup, res_tree) = taxonomyRollUp( res, db_stats, argvs.relAbu, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLHL )
+		(res_rollup, res_tree) = taxonomyRollUp( res, db_stats, argvs.relAbu, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLRL )
 		print_message( "Done taxonomy rolling up.", argvs.silent, begin_t, logfile )
 
 		if argvs.mode == 'summary' or argvs.mode == 'full':
-			outputResultsAsRanks( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLHL )
+			outputResultsAsRanks( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLRL )
 		elif argvs.mode == 'tree':
 			pass
 			#outputResultsAsTree( "1", res_tree, res_rollup, "", argvs.dbLevel, 0, argvs.taxonomy, out_fp, argvs.minCov, argvs.minReads, argvs.minLen )
 		elif argvs.mode == 'lineage':
-			outputResultsAsLineage( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLHL )
+			outputResultsAsLineage( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLRL )
 
 		print_message( "Done taxonomy profiling; %s results printed to %s." % (argvs.mode, outfile), argvs.silent, begin_t, logfile )
