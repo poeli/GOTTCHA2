@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.0 BETA"
+__version__   = "2.1.1 BETA"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -275,37 +275,6 @@ def chunkify(fname, size=1*1024*1024):
 			if chunkEnd > fileEnd:
 				break
 
-# def processSAMfile( sam_fp, numthreads, numlines ):
-# 	result = gt._autoVivification()
-# 	mapped_reads = 0
-
-# 	lines = sam_fp.readlines()
-# 	if len(lines) > numlines and numthreads > 1:
-# 		pool = Pool(processes=numthreads)
-# 		result_list = pool.map(worker,
-# 		    (lines[line:line+numlines] for line in range(0,len(lines),numlines) ) )
-
-# 		for res in result_list:
-# 			for k in res:
-# 				if k in result:
-# 					result[k]["ML"] = join_ranges( result[k]["ML"] + res[k]["ML"] )
-# 					result[k]["MB"] += res[k]["MB"]
-# 					result[k]["MR"] += res[k]["MR"]
-# 					result[k]["NM"] += res[k]["NM"]
-# 				else:
-# 					result[k].update(res[k])
-# 	else:
-# 		result = worker(lines)
-
-# 	# convert mapped regions to linear length
-# 	for k in result:
-# 		result[k]["LL"] = 0
-# 		mapped_reads += result[k]["MR"]
-# 		for cr in result[k]["ML"]:
-# 			result[k]["LL"] += cr[1]-cr[0]
-
-# 	return result, mapped_reads
-
 def processSAMfile( sam_fn, numthreads, numlines ):
 	result = gt._autoVivification()
 	mapped_reads = 0
@@ -374,11 +343,11 @@ def processSAMfileReadClass( f, o, tg_rank, taxid_fi ):
 				continue
 
 		o.write( "%s\t%s\t%s\t%s\t%s\n" % (
-		    rname,
-		    gt.taxid2taxidOnRank(tid, tg_rank),
+			rname,
+			gt.taxid2taxidOnRank(tid, tg_rank),
 			"%s:%s..%s" % (ref, region[0], region[1]),
 			cigr,
-		    gt.taxid2nameOnRank( tid, tg_rank )
+			gt.taxid2nameOnRank( tid, tg_rank )
 		))
 
 def processSAMfileReadExtract( sam_fn, o, taxid, numthreads ):
@@ -406,7 +375,7 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
 	lines = f.read(chunkSize).splitlines()
 	for line in lines:
 		ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
-		
+
 		if not pri_aln_flag: next
 
 		acc, start, stop, t = ref.split('|')
@@ -480,11 +449,11 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 	for stid in allStrTaxid:
 		# apply cutoffs strain level and rollup to higher levels		
 		if mc > res_rollup[stid]["LL"]/db_stats[stid] or \
-		    mr > res_rollup[stid]["MR"] or \
-		    ml > res_rollup[stid]["LL"] or \
-		    mh > res_rollup[stid]["LL"]/res_rollup[stid]["MR"]:
-		   continue
-	
+			mr > res_rollup[stid]["MR"] or \
+			ml > res_rollup[stid]["LL"] or \
+			mh > res_rollup[stid]["LL"]/res_rollup[stid]["MR"]:
+			continue
+
 		tree = gt.taxid2fullLinkDict( stid )
 
 		for pid, tid in tree.items():
@@ -497,7 +466,7 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 				# bDOC: best Depth of Coverage of a strain
 				# bLC:  best linear coverage of a strain
 				res_rollup[tid]["ML"]   += ";%s" % res_rollup[stid]["ML"]
-				res_rollup[tid]["MB"]   += res_rollup[stid]["MB"]  
+				res_rollup[tid]["MB"]   += res_rollup[stid]["MB"]
 				res_rollup[tid]["MR"]   += res_rollup[stid]["MR"]
 				res_rollup[tid]["NM"]   += res_rollup[stid]["NM"]
 				res_rollup[tid]["LL"]   += res_rollup[stid]["LL"]
@@ -508,7 +477,7 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"] if res_rollup[stid]["bLC"] > res_rollup[tid]["bLC"] else res_rollup[tid]["bLC"]
 			else:
 				res_rollup[tid]["ML"]    = res_rollup[stid]["ML"]
-				res_rollup[tid]["MB"]    = res_rollup[stid]["MB"]  
+				res_rollup[tid]["MB"]    = res_rollup[stid]["MB"]
 				res_rollup[tid]["MR"]    = res_rollup[stid]["MR"]
 				res_rollup[tid]["NM"]    = res_rollup[stid]["NM"]
 				res_rollup[tid]["LL"]    = res_rollup[stid]["LL"]
@@ -536,7 +505,7 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 	output = gt._autoVivification()
 	major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7,"strain":8}
-	
+
 	# init total abundance
 	tol_abu = {}
 	tol_abu["ROLLUP_DOC"] = 0
@@ -558,7 +527,7 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 			if not rank in output:
 				output[rank] = []
 			output[rank].append(tid)
-	
+
 	# Fields for full mode
 	add_field = "\t" + "\t".join([
 			"LINEAR_COV",
@@ -572,14 +541,21 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 			"REL_ABU_ROLLUP_DOC",
 			"REL_ABU_READ_COUNT",
 			"REL_ABU_TOL_BP_MAPPED",
-			"NOTE",
-			"MLRL"
-			]) if mode == "full" else ""
+			"MLRL",
+			"NOTE" ]) if mode == "full" else ""
 
 	# essential fields
-	o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s\n" %
-			( "LEVEL", "NAME", "TAXID", "READ_COUNT", "TOTAL_BP_MAPPED",
-			  "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_DOC", "ROLLUP_DOC", "REL_ABUNDANCE", add_field ) )
+	o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s%s\n" % (
+			"LEVEL",
+			"NAME",
+			"TAXID",
+			"READ_COUNT",
+			"TOTAL_BP_MAPPED",
+			"TOTAL_BP_MISMATCH",
+			"LINEAR_LENGTH",
+			"LINEAR_DOC",
+			"ROLLUP_DOC",
+			"REL_ABUNDANCE", add_field ) )
 
 	for rank in sorted( major_ranks, key=major_ranks.__getitem__ ):
 		if major_ranks[rank] > major_ranks[tg_rank] and mode == "summary":
@@ -594,79 +570,40 @@ def outputResultsAsRanks( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 			note += "Not shown (%s-result biased); "%rank if major_ranks[rank] > major_ranks[tg_rank] else ""
 
 			# additional fileds for full mode
-			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%.4f\t%.4f\t%.4f\t%s\t%.4f" % (
-			    res_rollup[tid]["LL"]/res_rollup[tid]["TS"],
-			    res_rollup[tid]["LL"]/res_rollup[tid]["SL"],
-			    res_rollup[tid]["bLC"],
-				res_rollup[tid]["MB"]/res_rollup[tid]["TS"],
-			    res_rollup[tid]["bDOC"],
-			    res_rollup[tid]["SL"],
-			    res_rollup[tid]["TS"],
-			    res_rollup[tid]["ABU"],
-				res_rollup[tid]["RD"]/tol_abu["ROLLUP_DOC"] if tol_abu["ROLLUP_DOC"] else 0,
-				res_rollup[tid]["MR"]/tol_abu["READ_COUNT"] if tol_abu["READ_COUNT"] else 0,
-				res_rollup[tid]["MB"]/tol_abu["TOTAL_BP_MAPPED"] if tol_abu["TOTAL_BP_MAPPED"] else 0,
-			    note,
-				res_rollup[tid]["LL"]/res_rollup[tid]["MR"]
-			    #res_rollup[tid]["ML"]
+			add_field = "\t%.4f\t%.4f\t%.4f\t%.4f\t%.4f\t%s\t%s\t%.2f\t%.4f\t%.4f\t%.4f\t%.4f\t%s" % (
+				res_rollup[tid]["LL"]/res_rollup[tid]["TS"],                                              # LINEAR_COV
+				res_rollup[tid]["LL"]/res_rollup[tid]["SL"],                                              # LINEAR_COV_MAPPED_SIG
+				res_rollup[tid]["bLC"],                                                                   # BEST_LINEAR_COV
+				res_rollup[tid]["MB"]/res_rollup[tid]["TS"],                                              # DOC
+				res_rollup[tid]["bDOC"],                                                                  # BEST_DOC
+				res_rollup[tid]["SL"],                                                                    # MAPPED_SIG_LENGTH
+				res_rollup[tid]["TS"],                                                                    # TOL_SIG_LENGTH
+				res_rollup[tid]["ABU"],                                                                   # ABUNDANCE
+				res_rollup[tid]["RD"]/tol_abu["ROLLUP_DOC"] if tol_abu["ROLLUP_DOC"] else 0,              # REL_ABU_ROLLUP_DOC
+				res_rollup[tid]["MR"]/tol_abu["READ_COUNT"] if tol_abu["READ_COUNT"] else 0,              # REL_ABU_READ_COUNT
+				res_rollup[tid]["MB"]/tol_abu["TOTAL_BP_MAPPED"] if tol_abu["TOTAL_BP_MAPPED"] else 0,    # REL_ABU_TOL_BP_MAPPED
+				res_rollup[tid]["LL"]/res_rollup[tid]["MR"],                                              # MLRL
+				note,                                                                                     # NOTE
+				#res_rollup[tid]["ML"]
 			) if mode == "full" else ""
 
 			if note and mode=="summary": continue
 
 			#relative abundance
 			o.write( "%s\t%s\t%s\t%s\t%s\t%s\t%s\t%.4f\t%.4f\t%.4f%s\n" %
-				( rank,
-				  gt.taxid2name(tid),
-				  tid,
-				  res_rollup[tid]["MR"],
-				  res_rollup[tid]["MB"],
-				  res_rollup[tid]["NM"],
-				  res_rollup[tid]["LL"],
-				  res_rollup[tid]["MB"]/res_rollup[tid]["LL"],
-				  res_rollup[tid]["RD"],
-				  res_rollup[tid]["ABU"]/tol_abu["ABU"] if tol_abu["ABU"] else 0,
-				  add_field
+				(   rank,
+					gt.taxid2name(tid),
+					tid,
+					res_rollup[tid]["MR"],
+					res_rollup[tid]["MB"],
+					res_rollup[tid]["NM"],
+					res_rollup[tid]["LL"],
+					res_rollup[tid]["MB"]/res_rollup[tid]["LL"],
+					res_rollup[tid]["RD"],
+					res_rollup[tid]["ABU"]/tol_abu["ABU"] if tol_abu["ABU"] else 0,
+					add_field
 				)
 			)
-
-# def outputResultsAsTree( tid, res_tree, res_rollup, indent, dbLevel, lvlFlag, taxid_fi, o, mc, mr, ml ):
-# 	"""
-# 	iterate taxonomy tree and print results recursively
-# 	"""
-
-# 	if tid == '1':
-# 		o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n" % ( "", "NAME", "LEVEL", "READ_COUNT", "TOTAL_BP_MAPPED", "TOTAL_BP_MISMATCH", "LINEAR_LENGTH", "LINEAR_COV", "LINEAR_DOC", "ROLLUP_DOC" ) )
-# 	else:
-# 		#if gt.taxid2rank(tid) == dbLevel: lvlFlag = 1
-# 		if mc <= res_rollup[tid]["MB"]/res_rollup[tid]["LL"] and mr <= res_rollup[tid]["MR"] and ml <= res_rollup[tid]["LL"]:
-# 			o.write( "%s%s\t%s\t%s\t%s\t%s\t%s\t%.4f\t%.4f\t%.4f\n" % (
-# 				indent,
-# 				gt.taxid2name(tid),
-# 				gt.taxid2rank(tid),
-# 				res_rollup[tid]["MR"],
-# 				res_rollup[tid]["MB"],
-# 				res_rollup[tid]["NM"],
-# 				res_rollup[tid]["LL"],
-# 				res_rollup[tid]["LL"]/res_rollup[tid]["SL"],
-# 				res_rollup[tid]["MB"]/res_rollup[tid]["LL"],
-# 				res_rollup[tid]["RD"]
-# 				)
-# 			)
-
-# 	if len( res_tree[tid] ):
-# 		indent += "    "
-# 		for cid in res_tree[tid]:
-# 			if taxid_fi:
-# 				if not isDescendant( tid, taxid_fi ):
-# 					continue
-
-# 			#if lvlFlag and gt.taxid2rank(cid) != dbLevel:
-# 			#	continue
-
-# 			if res_rollup[tid] and ( mc > res_rollup[tid]["LL"]/res_rollup[tid]["SL"] or mr > res_rollup[tid]["MR"] or ml > res_rollup[tid]["LL"] ):
-# 				continue
-
-# 			outputResultsAsTree( cid, res_tree, res_rollup, indent, dbLevel, lvlFlag, taxid_fi, o, mc, mr, ml )
 
 def outputResultsAsLineage( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 	for tid in res_rollup:
@@ -685,14 +622,12 @@ def readMapping( reads, db, threads, mm_penalty, samfile, logfile ):
 	"""
 	mapping reads to database
 	"""
-
 	input_file = " ".join(reads)
 
 	bash_cmd   = "set -o pipefail; set -x;"
-	#mm2_cmd    = "minimap2 -x sr -k24 -A1 -B%s -O30 -E30 -a -n1 -m24 -s30 --second=yes -p1 -t%s %s.mmi %s" % (mm_penalty, threads, db, input_file )
-	mm2_cmd    = "minimap2 -x sr -k24 -A1 -B%s -O30 -E30 -a -n1 -m24 -s30 -p1 -t%s %s.mmi %s" % (mm_penalty, threads, db, input_file )
-	filter_cmd = "gawk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048) { if(r!=$1.and($2,64)){r=$1.and($2,64); s=$14} if($14==s){print} }'"
-	cmd        = "%s %s 2>> %s | %s > %s" % ( bash_cmd, mm2_cmd, logfile, filter_cmd, samfile )
+	mm2_cmd    = "minimap2 -x sr -k24 -A1 -B%s -O30 -E30 -a -n1 -m24 -s30 --second=yes -p1 -t%s %s.mmi %s" % (mm_penalty, threads, db, input_file )
+	filter_cmd = "gawk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048) { if(r!=$1.and($2,64)){r=$1.and($2,64); s=$14} if($14>=s){print} }'"
+	cmd        = "%s %s 2>> %s | %s > %s"%(bash_cmd, mm2_cmd, logfile, filter_cmd, samfile)
 
 	proc = subprocess.Popen( cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
 	outs, errs = proc.communicate()
@@ -700,7 +635,7 @@ def readMapping( reads, db, threads, mm_penalty, samfile, logfile ):
 
 	return exitcode, mm2_cmd, errs
 
-def loadDatabaseStats( db_stats_file ):
+def loadDatabaseStats(db_stats_file):
 	"""
 	loading database stats from db_path.stats
 
@@ -730,11 +665,11 @@ def loadDatabaseStats( db_stats_file ):
 
 def print_message(msg, silent, start, logfile, errorout=0):
 	message = "[%s] %s\n" % (timeSpend(start), msg)
-	#loging
+
 	with open( logfile, "a" ) as f:
 		f.write( message )
 		f.close()
-	
+
 	if errorout:
 		sys.exit( message )
 	elif not silent:
@@ -747,7 +682,7 @@ if __name__ == '__main__':
 	samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
 	logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
 	lines_per_process = 10000
-	
+
 	print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
 
 	#dependency check
@@ -835,9 +770,8 @@ if __name__ == '__main__':
 
 		if argvs.mode == 'summary' or argvs.mode == 'full':
 			outputResultsAsRanks( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLRL )
-		elif argvs.mode == 'tree':
-			pass
-			#outputResultsAsTree( "1", res_tree, res_rollup, "", argvs.dbLevel, 0, argvs.taxonomy, out_fp, argvs.minCov, argvs.minReads, argvs.minLen )
+		#elif argvs.mode == 'tree':
+		#	outputResultsAsTree( "1", res_tree, res_rollup, "", argvs.dbLevel, 0, argvs.taxonomy, out_fp, argvs.minCov, argvs.minReads, argvs.minLen )
 		elif argvs.mode == 'lineage':
 			outputResultsAsLineage( res_rollup, out_fp, argvs.dbLevel, argvs.mode, argvs.minCov, argvs.minReads, argvs.minLen, argvs.minMLRL )
 
