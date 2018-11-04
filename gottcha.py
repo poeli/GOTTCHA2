@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.1 BETA"
+__version__   = "2.1.2 BETA"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -683,8 +683,6 @@ if __name__ == '__main__':
 	logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
 	lines_per_process = 10000
 
-	print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
-
 	#dependency check
 	if sys.version_info < (3,0):
 		sys.exit("[ERROR] Python 3.0 or above is required.")
@@ -700,6 +698,10 @@ if __name__ == '__main__':
 	outfile = "STDOUT"
 	argvs.relAbu = argvs.relAbu.upper()
 
+	# remove previous log file if exists
+	if os.path.isfile(logfile):
+		os.remove(logfile)
+
 	if not argvs.stdout:
 		#create output directory if not exists
 		if not os.path.exists(argvs.outdir):
@@ -709,6 +711,7 @@ if __name__ == '__main__':
 		outfile = "%s/%s.%s%s.%s" % ( argvs.outdir, argvs.prefix, argvs.mode, tg_taxid, ext)
 		out_fp = open( outfile, 'w')
 
+	print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
 	print_message( "Arguments and dependencies checked:", argvs.silent, begin_t, logfile )
 	print_message( "    Input reads      : %s" % argvs.input,     argvs.silent, begin_t, logfile )
 	print_message( "    Input SAM file   : %s" % samfile,         argvs.silent, begin_t, logfile )
@@ -729,7 +732,10 @@ if __name__ == '__main__':
 
 	#load taxonomy
 	print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
-	gt.loadTaxonomy( argvs.taxInfo )
+	custom_taxa_tsv = None
+	if os.path.isfile( argvs.database + ".tax.tsv" ):
+		custom_taxa_tsv = argvs.database+".tax.tsv"
+	gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
 	print_message( "Done.", argvs.silent, begin_t, logfile )
 
 	#load database stats
