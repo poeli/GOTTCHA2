@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.2 BETA"
+__version__   = "2.1.3 BETA"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -29,6 +29,7 @@ import sys, os, time, subprocess
 import taxonomy as gt
 import gc
 from re import search,findall
+from re import compile as recompile
 from multiprocessing import Pool
 from itertools import chain
 
@@ -186,17 +187,6 @@ def dependency_check(cmd):
 	outs, errs = proc.communicate()
 	return outs.decode().rstrip() if proc.returncode == 0 else False
 
-def join_ranges(intervals):
-	s = sorted(intervals, key=lambda t: t[0])
-	m = 0
-	for t in s:
-		if t[0] > s[m][1]:
-			m += 1
-			s[m] = t
-		else:
-			s[m] = [s[m][0], t[1]]
-	return s[:m+1]
-
 def worker(filename, chunkStart, chunkSize):
 	"""Make a dict out of the parsed, supplied lines"""
 	# processing alignments in SAM format
@@ -206,16 +196,16 @@ def worker(filename, chunkStart, chunkSize):
 	res={}
 
 	for line in lines:
-		k, r, n, rd, rs, rq, flag, cigr, pri_aln_flag = parse(line)
+		k, r, m, n, rd, rs, rq, flag, cigr, pri_aln_flag = parse(line)
 		if k in res:
-			res[k]["ML"] = join_ranges( res[k]["ML"] + [r] )
+			res[k]["ML"] = res[k]["ML"] | m
 			if pri_aln_flag:
 				res[k]["MB"] += r[1] - r[0] + 1
 				res[k]["MR"] += 1
 				res[k]["NM"] += n
 		else:
 			res[k]={}
-			res[k]["ML"] = [r]
+			res[k]["ML"] = m
 			if pri_aln_flag:
 				res[k]["MB"] = r[1] - r[0] + 1
 				res[k]["MR"] = 1
@@ -242,9 +232,13 @@ def parse(line):
 	ref = temp[2].rstrip('|')
 	ref = ref[: -2 if ref.endswith(".0") else None ]
 
+	(acc, rstart, rend, taxid) = ref.split('|')
+	rlen = int(rend)-int(rstart)+1
+	mask = int( "%s%s%s"%("0"*(start-1), "1"*(end-start+1), "0"*(rlen-end)), 2)
+
 	primary_alignment_flag=False if int(temp[1]) & 256 else True
 
-	return ref, [start, end], int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag
+	return ref, [start, end], mask, int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag
 
 def timeSpend( start ):
 	done = time.time()
@@ -305,7 +299,7 @@ def processSAMfile( sam_fn, numthreads, numlines ):
 	for res in results:
 		for k in res:
 			if k in result:
-				result[k]["ML"] = join_ranges(result[k]["ML"] + res[k]["ML"])
+				result[k]["ML"] = result[k]["ML"] | res[k]["ML"]
 				result[k]["MB"] += res[k]["MB"]
 				result[k]["MR"] += res[k]["MR"]
 				result[k]["NM"] += res[k]["NM"]
@@ -321,8 +315,14 @@ def processSAMfile( sam_fn, numthreads, numlines ):
 		else:
 			result[k]["LL"] = 0
 			mapped_reads += result[k]["MR"]
-			for cr in result[k]["ML"]:
-				result[k]["LL"] += cr[1]-cr[0]
+			
+			mask = result[k]["ML"]
+			p = recompile('1+')
+			bitstr = bin(mask).replace('0b','')
+			iterator = p.finditer(bitstr)
+			for match in iterator:
+				r = match.span()
+				result[k]["LL"] += r[1]-r[0]
 
 	return result, mapped_reads
 
@@ -419,14 +419,14 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 			# LL: linear length
 			# SL: length of this signature fragments (mapped)
 			# TS: length of total signature fragments for a strain (mapped + unmapped)
-			res_rollup[stid]["ML"] += ";%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
+			#res_rollup[stid]["ML"] += ";%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
 			res_rollup[stid]["MB"] += r[ref]["MB"]
 			res_rollup[stid]["MR"] += r[ref]["MR"]
 			res_rollup[stid]["NM"] += r[ref]["NM"]
 			res_rollup[stid]["LL"] += r[ref]["LL"]
 			res_rollup[stid]["SL"] += int(stop) - int(start) + 1
 		else:
-			res_rollup[stid]["ML"] = "%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
+			#res_rollup[stid]["ML"] = "%s:%s" %  ( ref, ",".join("..".join(map(str,l)) for l in r[ref]["ML"]) )
 			res_rollup[stid]["MB"] = r[ref]["MB"]
 			res_rollup[stid]["MR"] = r[ref]["MR"]
 			res_rollup[stid]["NM"] = r[ref]["NM"]
@@ -465,7 +465,7 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 			if tid in res_rollup:
 				# bDOC: best Depth of Coverage of a strain
 				# bLC:  best linear coverage of a strain
-				res_rollup[tid]["ML"]   += ";%s" % res_rollup[stid]["ML"]
+				#res_rollup[tid]["ML"]   += ";%s" % res_rollup[stid]["ML"]
 				res_rollup[tid]["MB"]   += res_rollup[stid]["MB"]
 				res_rollup[tid]["MR"]   += res_rollup[stid]["MR"]
 				res_rollup[tid]["NM"]   += res_rollup[stid]["NM"]
@@ -476,7 +476,7 @@ def taxonomyRollUp( r, db_stats, relAbu, mc, mr, ml, mh ):
 				res_rollup[tid]["bDOC"]  = res_rollup[stid]["bDOC"] if res_rollup[stid]["bDOC"] > res_rollup[tid]["bDOC"] else res_rollup[tid]["bDOC"]
 				res_rollup[tid]["bLC"]   = res_rollup[stid]["bLC"] if res_rollup[stid]["bLC"] > res_rollup[tid]["bLC"] else res_rollup[tid]["bLC"]
 			else:
-				res_rollup[tid]["ML"]    = res_rollup[stid]["ML"]
+				#res_rollup[tid]["ML"]    = res_rollup[stid]["ML"]
 				res_rollup[tid]["MB"]    = res_rollup[stid]["MB"]
 				res_rollup[tid]["MR"]    = res_rollup[stid]["MR"]
 				res_rollup[tid]["NM"]    = res_rollup[stid]["NM"]
