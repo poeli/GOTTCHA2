@@ -87,6 +87,10 @@ def parse_params( ver ):
 	p.add_argument( '-p','--prefix', metavar='<STR>', type=str, required=False,
 					help="Prefix of the output file [default: <INPUT_FILE_PREFIX>]")
 
+	p.add_argument( '-xm','--presetx', metavar='<STR>', type=str, required=False, default='sr',
+					choices=['sr','map-pb','map-ont'],
+					help="The preset option (-x) for minimap2. Default value 'sr' for short reads. [default: sr]")
+
 	p.add_argument( '-mc','--minCov', metavar='<FLOAT>', type=float, default=0.005,
 					help="Minimum linear coverage to be considered valid in abundance calculation [default: 0.005]")
 
@@ -315,7 +319,7 @@ def processSAMfile( sam_fn, numthreads, numlines ):
 		else:
 			result[k]["LL"] = 0
 			mapped_reads += result[k]["MR"]
-			
+
 			mask = result[k]["ML"]
 			p = recompile('1+')
 			bitstr = bin(mask).replace('0b','')
@@ -618,14 +622,16 @@ def outputResultsAsLineage( res_rollup, o, tg_rank, mode, mc, mr, ml, mh ):
 			)
 		)
 
-def readMapping( reads, db, threads, mm_penalty, samfile, logfile ):
+def readMapping( reads, db, threads, mm_penalty, presetx, samfile, logfile ):
 	"""
 	mapping reads to database
 	"""
 	input_file = " ".join(reads)
 
+	sr_opts = "-k24 -A1 -B%s -O30 -E30 -a -n1 -m24 -s30"%mm_penalty
+
 	bash_cmd   = "set -o pipefail; set -x;"
-	mm2_cmd    = "minimap2 -x sr -k24 -A1 -B%s -O30 -E30 -a -n1 -m24 -s30 --second=yes -p1 -t%s %s.mmi %s" % (mm_penalty, threads, db, input_file )
+	mm2_cmd    = "minimap2 -x %s %s --second=yes -t%s %s.mmi %s" % (presetx, sr_opts, threads, db, input_file )
 	filter_cmd = "gawk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048) { if(r!=$1.and($2,64)){r=$1.and($2,64); s=$14} if($14>=s){print} }'"
 	cmd        = "%s %s 2>> %s | %s > %s"%(bash_cmd, mm2_cmd, logfile, filter_cmd, samfile)
 
@@ -748,7 +754,7 @@ if __name__ == '__main__':
 
 	if argvs.input:
 		print_message( "Running read-mapping...", argvs.silent, begin_t, logfile )
-		exitcode, cmd, msg = readMapping( argvs.input, argvs.database, argvs.threads, argvs.mismatch, samfile, logfile )
+		exitcode, cmd, msg = readMapping( argvs.input, argvs.database, argvs.threads, argvs.mismatch, argvs.presetx, samfile, logfile )
 		print_message( "Logfile saved to %s." % logfile, argvs.silent, begin_t, logfile )
 		#print_message( "COMMAND: %s" % cmd, argvs.silent, begin_t, logfile )
 

@@ -1,2 +1,2 @@
-bwa>0.7
+minimap2>2.1
 gawk
