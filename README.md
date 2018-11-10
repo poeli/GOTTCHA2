@@ -14,10 +14,10 @@ GOTTCHAv2 is currently under development in BETA stage. Pre-built databases for 
 -------------------------------------------------------------------
 ## DEPENDENCIES
 
-GOTTCHA2 profiler is written in Python 3 and leverage BWA-MEM to map reads to signature sequences. In order to run GOTTCHA2 correctly, your system requires to have following dependencies installed correctly.
+GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to signature sequences. In order to run GOTTCHA2 correctly, your system requires to have following dependencies installed correctly.
 
 - Python 3.0+
-- BWA 0.7+
+- minimap2 2.1+
 - GNU awk
 
 -------------------------------------------------------------------
@@ -25,25 +25,19 @@ GOTTCHA2 profiler is written in Python 3 and leverage BWA-MEM to map reads to si
 
 1. Download GOTTCHA2 using git clone, cd to the cloned directory, and make a new directory for the database: 
 
-        git clone https://gitlab.com/poeli/GOTTCHA2.git
-        cd GOTTCHA2
-        mkdir database
+        $ git clone https://gitlab.com/poeli/GOTTCHA2.git
+        $ cd GOTTCHA2
+        $ mkdir database
 
-2. Download the database for bacterial species-level identification and untar.
+2. Download NCBI taxonomy dmp files, species signature index tar file and untar the file.
 
-        wget ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/RefSeq-Release81.Bacteria.species.fna.tar
-        tar -xf RefSeq-Release81.Bacteria.species.fna.tar -C database
+        $ wget https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/taxdump.tar.gz
+        $ wget https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/RefSeq-r90.cg.BacteriaViruses.species.fna.tar
+        $ tar -xf RefSeq-r90.cg.BacteriaViruses.species.fna.tar -C database
     
-    All available pre-computed databases for RefSeq-Release81 can be found at [LANL's FTP site](ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/). Note: Bacterial species database is almost 47GB. If you prefer a smaller database to start with, viral sepcies database `RefSeq-Release81.Virus.species.fna.tar` is 0.6GB which could be a good alternative testing database.
+3. Run GOTTCHA2:
 
-3. Download taxonomy information and untar:
-
-        wget ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/taxonomy.tar
-        tar -xf taxonomy.tar -C database
-
-4. Run GOTTCHA2:
-
-        ./gottcha.py -d database/RefSeq-Release81.Bacteria.species.fna -t <THREADS> -i <FASTQ>
+        $ ./gottcha2.py -d database/RefSeq-r90.cg.BacteriaViruses.species.fna -t 8 -i <FASTQ>
 
 -------------------------------------------------------------------
 ## RESULT
@@ -88,17 +82,18 @@ A full GOTTCHA2 report has 22 columns in tab-delimited format. The summary repor
 ## USAGE
 
 ```
-usage: gottcha.py [-h] (-i [FASTQ] [[FASTQ] ...] | -s [SAMFILE])
-                  [-d [BWA_INDEX]] [-l [LEVEL]] [-ti [FILE]] [-pm <INT>]
+usage: gottcha.py [-h] [-i [FASTQ] [[FASTQ] ...]] [-s [SAMFILE]]
+                  [-d [MINIMAP2_INDEX]] [-l [LEVEL]] [-ti [FILE]] [-pm <INT>]
                   [-m {summary,full,class,extract,lineage}] [-x [TAXID]]
-                  [-r [FIELD]] [-t <INT>] [-o [DIR]] [-p <STR>] [-mc <FLOAT>]
-                  [-mr <INT>] [-ml <INT>] [-nc] [-c] [--silent]
+                  [-r [FIELD]] [-t <INT>] [-o [DIR]] [-p <STR>] [-xm <STR>]
+                  [-mc <FLOAT>] [-mr <INT>] [-ml <INT>] [-mh <INT>] [-nc] [-c]
+                  [-v] [--silent] [--debug]
 
 Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an annotation-
 independent and signature-based metagenomic taxonomic profiling tool that has
 significantly smaller FDR than other profiling tools. This program is a
-wrapper to map input reads to pre-computed signature databases using BWA-MEM
-and/or to profile mapped reads in SAM format. (VERSION: 2.0.0 BETA)
+wrapper to map input reads to pre-computed signature databases using minimap2
+and/or to profile mapped reads in SAM format. (VERSION: 2.1.3 BETA)
 
 optional arguments:
   -h, --help            show this help message and exit
@@ -108,9 +103,9 @@ optional arguments:
   -s [SAMFILE], --sam [SAMFILE]
                         Specify the input SAM file. Use '-' for standard
                         input.
-  -d [BWA_INDEX], --database [BWA_INDEX]
+  -d [MINIMAP2_INDEX], --database [MINIMAP2_INDEX]
                         The path of signature database. The database can be in
-                        FASTA format or BWA index (5 files).
+                        FASTA format or minimap2 index (5 files).
   -l [LEVEL], --dbLevel [LEVEL]
                         Specify the taxonomic level of the input database. You
                         can choose one rank from "superkingdom", "phylum",
@@ -156,6 +151,9 @@ optional arguments:
   -p <STR>, --prefix <STR>
                         Prefix of the output file [default:
                         <INPUT_FILE_PREFIX>]
+  -xm <STR>, --presetx <STR>
+                        The preset option (-x) for minimap2. Default value
+                        'sr' for short reads. [default: sr]
   -mc <FLOAT>, --minCov <FLOAT>
                         Minimum linear coverage to be considered valid in
                         abundance calculation [default: 0.005]
@@ -165,8 +163,13 @@ optional arguments:
   -ml <INT>, --minLen <INT>
                         Minimum unique length to be considered valid in
                         abundance calculation [default: 60]
+  -mh <INT>, --minMLRL <INT>
+                        Minimum mean linear read length [default: 1]
   -nc, --noCutoff       Remove all cutoffs. This option is equivalent to use
                         [-mc 0 -mr 0 -ml 0].
   -c, --stdout          Write on standard output.
+  -v, --version         Print version number.
   --silent              Disable all messages.
-  ```
+  --debug               Debug mode. Provide verbose running messages and keep
+                        all temporary files.
+```

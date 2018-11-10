@@ -1,9 +1,7 @@
 before_script:
-  - apt -y install gawk
   - pip install coverage
-  - curl -OL https://github.com/lh3/bwa/releases/download/v0.7.15/bwakit-0.7.15_x64-linux.tar.bz2
-  - tar -xjf bwakit-0.7.15_x64-linux.tar.bz2
-  - export PATH="bwa.kit:$PATH"
+  - conda install -y gawk
+  - conda install -c bioconda -y bwa
   - curl -OL ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/RefSeq-Release81.Virus.species.fna.tar
   - curl -OL ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/taxonomy.tar
   - mkdir database
@@ -14,9 +12,9 @@ before_script:
 functional tests:
   image: continuumio/miniconda3
   script:
-# test gottcha_taxonomy.py
+# test taxonomy.py
     - echo 186538.1 > test_taxid.txt
-    - coverage run -p ./gottcha_taxonomy.py < test_taxid.txt
+    - coverage run -p ./taxonomy.py database < test_taxid.txt
 # init test
     - coverage run -p gottcha.py --help
     - coverage run -p gottcha.py -d database/RefSeq-Release81.Virus.species.fna -p test -i SRR1553609_1.fastq.gz
@@ -27,8 +25,8 @@ functional tests:
     - head test_mode.full.tsv
     - coverage run -p gottcha.py -m class -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
     - head test_mode.class.tsv
-    - coverage run -p gottcha.py -m lineage -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
-    - head test_mode.lineage.tsv
+#    - coverage run -p gottcha.py -m lineage -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
+#    - head test_mode.lineage.tsv
     - coverage run -p gottcha.py -m extract -x 186538 -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
     - head test_mode.extract186538.fastq
 # test cutoffs
