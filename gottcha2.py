@@ -339,7 +339,7 @@ def isDescendant( taxid, taxid_ant ):
 
 def processSAMfileReadClass( f, o, tg_rank, taxid_fi ):
 	for line in f:
-		ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
+		ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
 		acc, start, stop, tid = ref.split('|')
 
 		if taxid_fi:
@@ -378,7 +378,7 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
 	f.seek(chunkStart)
 	lines = f.read(chunkSize).splitlines()
 	for line in lines:
-		ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
+		ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
 
 		if not pri_aln_flag: next
 
