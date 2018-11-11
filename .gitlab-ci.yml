@@ -1,7 +1,7 @@
 before_script:
   - pip install coverage
   - conda install -y gawk
-  - conda install -c bioconda -y bwa
+  - conda install -c bioconda -y minimap2
   - curl -OL https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/RefSeq-r90.cg.Viruses.species.fna.tar
   - curl -OL https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/taxdump.tar.gz
   - mkdir database
@@ -14,7 +14,7 @@ functional tests:
   script:
 # test taxonomy.py
     - echo 186538.1 > test_taxid.txt
-    - coverage run -p ./taxonomy.py database < test_taxid.txt
+    - coverage run -p ./taxonomy.py database database/RefSeq-r90.cg.Viruses.species.fna.tax.tsv < test_taxid.txt
 # init test
     - coverage run -p gottcha2.py --help
     - coverage run -p gottcha2.py -d database/RefSeq-r90.cg.Viruses.species.fna -p test -i SRR1553609_1.fastq.gz
