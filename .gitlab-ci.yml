@@ -2,11 +2,11 @@ before_script:
   - pip install coverage
   - conda install -y gawk
   - conda install -c bioconda -y bwa
-  - curl -OL ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/RefSeq-Release81.Virus.species.fna.tar
-  - curl -OL ftp://ftp.lanl.gov/public/genome/GOTTCHA2/RefSeq-Release81/taxonomy.tar
+  - curl -OL https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/RefSeq-r90.cg.Viruses.species.fna.tar
+  - curl -OL https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/taxdump.tar.gz
   - mkdir database
-  - tar -xf RefSeq-Release81.Virus.species.fna.tar -C database
-  - tar -xf taxonomy.tar -C database
+  - tar -xf RefSeq-r90.cg.Viruses.species.fna.tar -C database
+  - mv taxdump.tar.gz database
   - curl -OL ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR155/009/SRR1553609/SRR1553609_1.fastq.gz
 
 functional tests:
@@ -16,34 +16,34 @@ functional tests:
     - echo 186538.1 > test_taxid.txt
     - coverage run -p ./taxonomy.py database < test_taxid.txt
 # init test
-    - coverage run -p gottcha.py --help
-    - coverage run -p gottcha.py -d database/RefSeq-Release81.Virus.species.fna -p test -i SRR1553609_1.fastq.gz
+    - coverage run -p gottcha2.py --help
+    - coverage run -p gottcha2.py -d database/RefSeq-r90.cg.Viruses.species.fna -p test -i SRR1553609_1.fastq.gz
 # test modes
-    - coverage run -p gottcha.py -m summary -d database/RefSeq-Release81.Virus.species.fna -p test_mode -i SRR1553609_1.fastq.gz
+    - coverage run -p gottcha2.py -m summary -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -i SRR1553609_1.fastq.gz
     - head test_mode.summary.tsv
-    - coverage run -p gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
+    - coverage run -p gottcha2.py -m full -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
     - head test_mode.full.tsv
-    - coverage run -p gottcha.py -m class -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
+    - coverage run -p gottcha2.py -m class -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
     - head test_mode.class.tsv
-#    - coverage run -p gottcha.py -m lineage -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
+#    - coverage run -p gottcha.py -m lineage -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
 #    - head test_mode.lineage.tsv
-    - coverage run -p gottcha.py -m extract -x 186538 -d database/RefSeq-Release81.Virus.species.fna -p test_mode -s test.gottcha_species.sam
+    - coverage run -p gottcha2.py -m extract -x 186538 -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
     - head test_mode.extract186538.fastq
 # test cutoffs
-    - coverage run -p gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test_cutoff -s test.gottcha_species.sam --noCutoff
+    - coverage run -p gottcha2.py -m full -d database/RefSeq-r90.cg.Viruses.species.fna -p test_cutoff -s test.gottcha_species.sam --noCutoff
     - head test_cutoff.full.tsv
-    - coverage run -p gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test_cutoff -s test.gottcha_species.sam -mc 0.002 -mr 2 -ml 50
+    - coverage run -p gottcha2.py -m full -d database/RefSeq-r90.cg.Viruses.species.fna -p test_cutoff -s test.gottcha_species.sam -mc 0.002 -mr 2 -ml 50
     - head test_cutoff.full.tsv
 # test relative abundance
-    - coverage run -p gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test_ra -s test.gottcha_species.sam -r ROLLUP_DOC
+    - coverage run -p gottcha2.py -m full -d database/RefSeq-r90.cg.Viruses.species.fna -p test_ra -s test.gottcha_species.sam -r ROLLUP_DOC
     - head test_ra.full.tsv
-    - coverage run -p gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test_ra -s test.gottcha_species.sam -r READ_COUNT
+    - coverage run -p gottcha2.py -m full -d database/RefSeq-r90.cg.Viruses.species.fna -p test_ra -s test.gottcha_species.sam -r READ_COUNT
     - head test_ra.full.tsv
-    - coverage run -p gottcha.py -m full -d database/RefSeq-Release81.Virus.species.fna -p test_ra -s test.gottcha_species.sam -r TOTAL_BP_MAPPED
+    - coverage run -p gottcha2.py -m full -d database/RefSeq-r90.cg.Viruses.species.fna -p test_ra -s test.gottcha_species.sam -r TOTAL_BP_MAPPED
     - head test_ra.full.tsv
 # test multiple threads
     - cat test.gottcha_species.sam test.gottcha_species.sam test.gottcha_species.sam > test.gottcha_species_3x.sam
-    - coverage run -p gottcha.py -m full -t 4 -d database/RefSeq-Release81.Virus.species.fna -p test_mt -s test.gottcha_species_3x.sam
+    - coverage run -p gottcha2.py -m full -t 4 -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mt -s test.gottcha_species_3x.sam
     - head test_mt.full.tsv
 # coverage report
     - coverage combine
