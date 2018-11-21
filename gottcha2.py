@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.3 BETA"
+__version__   = "2.1.4 BETA"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
@@ -64,11 +64,11 @@ def parse_params( ver ):
 	p.add_argument( '-m','--mode', type=str, default='summary',
 					choices=['summary', 'full', 'class', 'extract', 'lineage'],
 					help="""You can specify one of the following output modes:
-                            "summary" : report a summary of profiling result;
-                            "full"    : other than a summary result, this mode will report unfiltered profiling results with more detail;
-                            "class"   : output results of classified reads;
-                            "extract" : extract mapped reads;
-                            "lineage" : output abundance and lineage in a line;
+							"summary" : report a summary of profiling result;
+							"full"    : other than a summary result, this mode will report unfiltered profiling results with more detail;
+							"class"   : output results of classified reads;
+							"extract" : extract mapped reads;
+							"lineage" : output abundance and lineage in a line;
 						  Note that only results/reads belongs to descendants of TAXID will be reported/extracted if option [--taxonomy TAXID] is specified. [default: summary]""" )
 
 	p.add_argument( '-x','--taxonomy', metavar='[TAXID]', type=str,
@@ -200,17 +200,17 @@ def worker(filename, chunkStart, chunkSize):
 	res={}
 
 	for line in lines:
-		k, r, m, n, rd, rs, rq, flag, cigr, pri_aln_flag = parse(line)
+		k, r, m, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
 		if k in res:
 			res[k]["ML"] = res[k]["ML"] | m
-			if pri_aln_flag:
+			if pri_aln_flag and valid_flag:
 				res[k]["MB"] += r[1] - r[0] + 1
 				res[k]["MR"] += 1
 				res[k]["NM"] += n
 		else:
 			res[k]={}
 			res[k]["ML"] = m
-			if pri_aln_flag:
+			if pri_aln_flag and valid_flag:
 				res[k]["MB"] = r[1] - r[0] + 1
 				res[k]["MR"] = 1
 				res[k]["NM"] = n
@@ -241,8 +241,9 @@ def parse(line):
 	mask = int( "%s%s%s"%("0"*(start-1), "1"*(end-start+1), "0"*(rlen-end)), 2)
 
 	primary_alignment_flag=False if int(temp[1]) & 256 else True
+	valid_flag=True if (match_len >= rlen*0.5) or (match_len >= len(temp[9])*0.5) else False
 
-	return ref, [start, end], mask, int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag
+	return ref, [start, end], mask, int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
 
 def timeSpend( start ):
 	done = time.time()
@@ -339,20 +340,21 @@ def isDescendant( taxid, taxid_ant ):
 
 def processSAMfileReadClass( f, o, tg_rank, taxid_fi ):
 	for line in f:
-		ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
+		ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
 		acc, start, stop, tid = ref.split('|')
 
 		if taxid_fi:
 			if not isDescendant( tid, taxid_fi ):
 				continue
 
-		o.write( "%s\t%s\t%s\t%s\t%s\n" % (
-			rname,
-			gt.taxid2taxidOnRank(tid, tg_rank),
-			"%s:%s..%s" % (ref, region[0], region[1]),
-			cigr,
-			gt.taxid2nameOnRank( tid, tg_rank )
-		))
+		if pri_aln_flag and valid_flag:
+			o.write( "%s\t%s\t%s\t%s\t%s\n" % (
+				rname,
+				gt.taxid2taxidOnRank(tid, tg_rank),
+				"%s:%s..%s" % (ref, region[0], region[1]),
+				cigr,
+				gt.taxid2nameOnRank( tid, tg_rank )
+			))
 
 def processSAMfileReadExtract( sam_fn, o, taxid, numthreads ):
 	pool = Pool(processes=numthreads)
@@ -378,9 +380,9 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
 	f.seek(chunkStart)
 	lines = f.read(chunkSize).splitlines()
 	for line in lines:
-		ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag = parse(line)
+		ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
 
-		if not pri_aln_flag: next
+		if not (pri_aln_flag and valid_flag): next
 
 		acc, start, stop, t = ref.split('|')
 		fullLineage = gt.taxid2fullLineage(t)
