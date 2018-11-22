@@ -241,7 +241,7 @@ def parse(line):
 	mask = int( "%s%s%s"%("0"*(start-1), "1"*(end-start+1), "0"*(rlen-end)), 2)
 
 	primary_alignment_flag=False if int(temp[1]) & 256 else True
-	valid_flag=True if (match_len >= rlen*0.5) or (match_len >= len(temp[9])*0.5) else False
+	valid_flag=True if (int(match_len.group(1)) >= rlen*0.5) or (int(match_len.group(1)) >= len(temp[9])*0.5) else False
 
 	return ref, [start, end], mask, int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
 
