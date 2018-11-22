@@ -25,8 +25,8 @@ functional tests:
     - head test_mode.full.tsv
     - coverage run -p gottcha2.py -m class -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
     - head test_mode.class.tsv
-#    - coverage run -p gottcha.py -m lineage -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
-#    - head test_mode.lineage.tsv
+    - coverage run -p gottcha.py -m lineage -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
+    - head test_mode.lineage.tsv
     - coverage run -p gottcha2.py -m extract -x 186538 -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
     - head test_mode.extract186538.fastq
 # test cutoffs
