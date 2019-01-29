@@ -24,7 +24,7 @@ before_script:
   - mkdir database
   - tar -xf RefSeq-r90.cg.Viruses.species.fna.tar -C database
   - mv taxdump.tar.gz database
-  - curl -OL ftp://ftp.sra.ebi.ac.uk/vol1/fastq/SRR155/009/SRR1553609/SRR1553609_1.fastq.gz
+  - curl -o SRR1553609.fastq.gz -L -A "Mozilla/5.0" "https://trace.ncbi.nlm.nih.gov/Traces/sra/sra.cgi?cmd=dload&run_list=SRR1553609&format=fastq"
 
 # command to run tests
 script:
@@ -33,9 +33,9 @@ script:
   - coverage run -p ./taxonomy.py database database/RefSeq-r90.cg.Viruses.species.fna.tax.tsv < test_taxid.txt
   # init test
   - coverage run -p gottcha2.py --help
-  - coverage run -p gottcha2.py -d database/RefSeq-r90.cg.Viruses.species.fna -p test -i SRR1553609_1.fastq.gz
+  - coverage run -p gottcha2.py -d database/RefSeq-r90.cg.Viruses.species.fna -p test -i SRR1553609.fastq.gz
   # test modes
-  - coverage run -p gottcha2.py -m summary -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -i SRR1553609_1.fastq.gz
+  - coverage run -p gottcha2.py -m summary -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -i SRR1553609.fastq.gz
   - head test_mode.summary.tsv
   - coverage run -p gottcha2.py -m full -d database/RefSeq-r90.cg.Viruses.species.fna -p test_mode -s test.gottcha_species.sam
   - head test_mode.full.tsv
