@@ -9,8 +9,10 @@ Welcome to GOTTCHA2's documentation!
 .. toctree::
    :maxdepth: 2
    :caption: Contents:
-   gottcha2.rst
+   gottcha2
 
+.. image:: images/gottcha_icon.png
+   :width: 220
 
 Indices and tables
 ==================
