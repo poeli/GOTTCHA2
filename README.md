@@ -1,6 +1,9 @@
+[![logo](https://gottcha2.readthedocs.io/en/latest/_images/gottcha_icon.png)
+
 # Genomic Origin Through Taxonomic CHAllenge (GOTTCHA)
 
 [![Build Status](https://travis-ci.org/poeli/GOTTCHA2.svg?branch=master)](https://travis-ci.org/poeli/GOTTCHA2)
+[![License](https://img.shields.io/badge/License-BSD%203--Clause-blue.svg)](https://opensource.org/licenses/BSD-3-Clause)
 
 GOTTCHA is an application of a novel, gene-independent and signature-based metagenomic taxonomic profiling 
 method with significantly smaller false discovery rates (FDR) that is laptop deployable. Our algorithm was 
