@@ -1,2 +1,0 @@
-minimap2>2.1
-gawk
