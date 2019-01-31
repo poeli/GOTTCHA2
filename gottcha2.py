@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
-__credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
+__credits__   = "Po-E Li"
 __version__   = "2.1.4-beta"
 __date__      = "2018/10/07"
 __copyright__ = """
