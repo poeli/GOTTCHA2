@@ -1,4 +1,4 @@
-[![logo](https://gottcha2.readthedocs.io/en/latest/_images/gottcha_icon.png)
+[![logo](https://gottcha2.readthedocs.io/en/latest/_images/gottcha_icon.png)](https://gottcha2.readthedocs.io/en/latest/_images/gottcha_icon.png)
 
 # Genomic Origin Through Taxonomic CHAllenge (GOTTCHA)
 
