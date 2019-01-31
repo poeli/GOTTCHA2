@@ -8,15 +8,8 @@ Welcome to GOTTCHA2's documentation!
 
 .. toctree::
    :maxdepth: 2
-   :caption: Contents:
-   gottcha2
+
+   Introduction
 
 .. image:: images/gottcha_icon.png
    :width: 220
-
-Indices and tables
-==================
-
-* :ref:`genindex`
-* :ref:`modindex`
-* :ref:`search`
