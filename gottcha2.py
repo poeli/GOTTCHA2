@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.0.4-BETA"
+__version__   = "2.1.4-beta"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2014). Los Alamos National Security, LLC. This material was produced
