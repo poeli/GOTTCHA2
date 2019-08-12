@@ -1,7 +1,12 @@
 # Changelog
 All notable changes to GOTTCHA2 will be documented in this file.
 
-## [Unreleased]
+## [v2.1.5 BETA]
+- The “--mode” option is removed. GOTTCHA2 will generate reports in all 3 types — summary, full and lineage.
+- Options for extracting reads were “--mode extract -x <TAXID>”, it is “--extract <TAXID>” now.
+- Supported results in TSV, CSV and BIOM (requires biom library) format by --format option.
+- Optimized options for nanopore input by run gottcha2 with --nanopore option.
+- Minor performance improvement.
 
 ## [v2.1.4 BETA]
 - Minor bugs fixed

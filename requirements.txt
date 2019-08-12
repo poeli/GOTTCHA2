@@ -1,2 +1,4 @@
-minimap2>2.1
+minimap2>=2.1
 gawk
+pandas
+biom-format>=2.1.7
