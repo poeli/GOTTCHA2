@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.5 BETA"
+__version__   = "2.1.6 BETA"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -513,9 +513,7 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
             'TOTAL_BP_MISMATCH', 'LINEAR_LEN', 'LINEAR_DOC', 'ROLLUP_DOC', 'REL_ABUNDANCE',
             'LINEAR_COV', 'LINEAR_COV_MAPPED_SIG', 'BEST_LINEAR_COV', 'MAPPED_SIG_LENGTH', 'TOL_SIG_LENGTH',
-            'ABUNDANCE', 'ZSCORE', 'NOTE'
-            #'PILE_NORM_D','PILE_POIS_D','PILE_N_POIS_D'
-    ]
+            'ABUNDANCE', 'ZSCORE', 'NOTE']
 
     qualified_idx = (rep_df['NOTE']=="")
     qualified_df = rep_df.loc[qualified_idx, cols[:10]]
@@ -552,14 +550,10 @@ def generaete_biom_file(res_df, o, tg_rank, sampleid):
 
     return True
 
-def generaete_lineage_file(res_df, o, tg_rank):
+def generaete_lineage_file(target_df, o, tg_rank):
     """
     output abundance-lineage in tsv format
     """
-    import csv
-    target_df = pd.DataFrame()
-    target_idx = (res_df['LEVEL']==tg_rank)
-    target_df = res_df.loc[target_idx, ['ABUNDANCE','TAXID']]
     lineage_df = target_df['TAXID'].apply(lambda x: gt.taxid2lineage(x, True, True)).str.split('|', expand=True)
     result = pd.concat([target_df['ABUNDANCE'], lineage_df], axis=1, sort=False)
     result.to_csv(o, index=False, header=False, sep='\t', float_format='%.4f')
@@ -572,9 +566,9 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     """
     input_file = " ".join(reads)
     
-    sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N1 -n1 -p1 -m24 -s30"
+    sr_opts = f"-x {presetx} --second=no -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N1 -n1 -p1 -m24 -s30"
     if nanopore:
-        sr_opts = f"-x {presetx} -a"
+        sr_opts = f"-x {presetx} --second=no -a"
 
     bash_cmd   = "set -o pipefail; set -x;"
     mm2_cmd    = f"minimap2 {sr_opts} -t{threads} {db}.mmi {input_file}"
@@ -717,16 +711,27 @@ if __name__ == '__main__':
         print_message( "Done extracting reads to %s." % outfile, argvs.silent, begin_t, logfile )
     else:
         (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, lines_per_process)
-        print_message( "Done processing SAM file. %s reads mapped." % mapped_r_cnt, argvs.silent, begin_t, logfile )
-        res_df = roll_up_taxonomy( res, db_stats, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
-        print_message( "Done taxonomy rolling up.", argvs.silent, begin_t, logfile )
+        print_message( "Done processing SAM file. %s qualified mapped reads." % mapped_r_cnt, argvs.silent, begin_t, logfile )
 
-        # generate output files
-        if argvs.format == "biom":
-            generaete_biom_file(res_df, out_fp, argvs.dbLevel, argvs.prefix)
+        if mapped_r_cnt:
+            res_df = roll_up_taxonomy(res, db_stats, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
+            print_message( "Done taxonomy rolling up.", argvs.silent, begin_t, logfile )
+
+            if not len(res_df):
+                print_message( "No qualified taxonomy profiled.", argvs.silent, begin_t, logfile )
+            else:
+                # generate output files
+                if argvs.format == "biom":
+                    generaete_biom_file(res_df, out_fp, argvs.dbLevel, argvs.prefix)
+                else:
+                    generaete_taxonomy_file(res_df, out_fp, outfile_full, argvs.format)
+                # generate lineage file
+                target_idx = (res_df['LEVEL']==argvs.dbLevel)
+                target_df = res_df.loc[target_idx, ['ABUNDANCE','TAXID']]
+                tax_num = len(target_df)
+                if tax_num:
+                     generaete_lineage_file(target_df, outfile_lineage, argvs.dbLevel)
+
+                print_message( "%s qualified %s profiled; Results saved to %s." %(tax_num, argvs.dbLevel, outfile), argvs.silent, begin_t, logfile )
         else:
-            generaete_taxonomy_file(res_df, out_fp, outfile_full, argvs.format)
-        # generate lineage file
-        generaete_lineage_file(res_df, outfile_lineage, argvs.dbLevel)
-
-        print_message( "Done taxonomy profiling; Results saved to %s." %(outfile), argvs.silent, begin_t, logfile )
+            print_message( "GOTTCHA2 stopped.", argvs.silent, begin_t, logfile )
