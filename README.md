@@ -13,7 +13,7 @@ GOTTCHAv2 is currently under development in BETA stage. Pre-built databases for 
 -------------------------------------------------------------------
 ## DEPENDENCIES
 
-GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to signature sequences. In order to run GOTTCHA2 correctly, your system requires to have following dependencies installed correctly.
+GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to signature sequences. In order to run GOTTCHA2 correctly, your system requires to have following dependencies installed correctly. The YAML file for Conda environment can be found in `environment.yml`.
 
 - Python 3.4+
 - minimap2 2.1+
@@ -29,7 +29,7 @@ GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to si
 
         $ wget -O database/taxdump.tar.gz https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/taxdump.tar.gz
         $ wget https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/RefSeq-r90.cg.BacteriaArchaeaViruses.species.fna.tar
-        $ tar -xf RefSeq-r90.cg.BacteriaArchaeaViruses.species.fna.tar -C database
+        $ tar -xvf RefSeq-r90.cg.BacteriaArchaeaViruses.species.fna.tar
     
 3. Run GOTTCHA2:
 
