@@ -27,7 +27,7 @@ GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to si
 
 2. Download NCBI taxonomy dmp files, species signature index tar file and untar the file.
 
-        $ wget https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-Release90/RefSeq-r90.cg.BacteriaArchaeaViruses.species.fna.tar
+        $ wget https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-r90.cg.BacteriaArchaeaViruses.species.tar
         $ tar -xvf RefSeq-r90.cg.BacteriaArchaeaViruses.species.fna.tar
     
 3. Run GOTTCHA2:
