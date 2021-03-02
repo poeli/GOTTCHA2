@@ -8,3 +8,4 @@ dependencies:
   - gawk
   - pandas
   - biom-format>=2.1.7
+  - requests
