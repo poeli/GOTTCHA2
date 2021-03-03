@@ -2,6 +2,9 @@
 
 # Genomic Origin Through Taxonomic CHAllenge (GOTTCHA)
 
+[![gottcha2](https://github.com/poeli/GOTTCHA2/workflows/gottcha/badge.svg)](https://github.com/poeli/GOTTCHA2/actions?query=workflow%3Agottcha) 
+
+
 GOTTCHA is an application of a novel, gene-independent and signature-based metagenomic taxonomic profiling 
 method with significantly smaller false discovery rates (FDR) that is laptop deployable. Our algorithm was 
 tested and validated on twenty synthetic and mock datasets ranging in community composition and complexity, 

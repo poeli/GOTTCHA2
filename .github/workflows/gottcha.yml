@@ -1,0 +1,36 @@
+name: gottcha
+
+on:
+  push:
+    branches: [ master, develop ]
+  pull_request:
+    branches: [ master, develop ]
+jobs:
+  functional-tests:
+    name: GOTTCHA2 test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: ["ubuntu-latest"]
+    defaults:
+      run:
+        shell: bash -l {0}
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: GOTTCHA2
+
+      - uses: conda-incubator/setup-miniconda@v2
+        with:
+          environment-file: GOTTCHA2/environment.yml
+          activate-environment: gottcha
+
+      - name: Check version
+        run: |
+          conda list
+          GOTTCHA2/gottcha2.py --version
+
+      - name: Run test dataset
+        run: |
+          GOTTCHA2/gottcha2.py -d GOTTCHA2/test/database/Ebola.species.fna -i GOTTCHA2/test/SRR11241255_1k_reads.fastq.gz
+          cat SRR11241255_1k_reads.tsv | grep 'Zaire ebolavirus'

@@ -44,7 +44,7 @@ def parse_params( ver ):
 
     eg = p.add_mutually_exclusive_group( required=True )
 
-    eg.add_argument( '-i','--input', metavar='[FASTQ]', nargs='+', type=str,
+    eg.add_argument( '-i','--input', metavar='[FASTQ]', nargs='+', type=ap.FileType('r'),
                     help="Input one or multiple FASTQ/FASTA file(s). Use space to separate multiple input files.")
 
     eg.add_argument( '-s','--sam', metavar='[SAMFILE]', nargs=1, type=ap.FileType('r'),
@@ -155,7 +155,7 @@ def parse_params( ver ):
 
     if not args_parsed.prefix:
         if args_parsed.input:
-            name = search(r'([^\/\.]+)\..*$', args_parsed.input[0] )
+            name = search(r'([^\/\.]+)\..*$', args_parsed.input[0].name )
             args_parsed.prefix = name.group(1)
         elif args_parsed.sam:
             name = search(r'([^\/]+).\w+.\w+$', args_parsed.sam[0].name )
@@ -564,7 +564,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     """
     mapping reads to database
     """
-    input_file = " ".join(reads)
+    input_file = " ".join([x.name for x in reads])
     
     sr_opts = f"-x {presetx} --second=no -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N1 -n1 -p1 -m24 -s30"
     if nanopore:
@@ -664,7 +664,7 @@ if __name__ == '__main__':
 
     print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
     print_message( "Arguments and dependencies checked:", argvs.silent, begin_t, logfile )
-    print_message( "    Input reads      : %s" % argvs.input,     argvs.silent, begin_t, logfile )
+    print_message( "    Input reads      : %s" % [x.name for x in argvs.input],     argvs.silent, begin_t, logfile )
     print_message( "    Input SAM file   : %s" % samfile,         argvs.silent, begin_t, logfile )
     print_message( "    Database         : %s" % argvs.database,  argvs.silent, begin_t, logfile )
     print_message( "    Database level   : %s" % argvs.dbLevel,   argvs.silent, begin_t, logfile )
