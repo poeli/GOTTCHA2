@@ -29,3 +29,8 @@ jobs:
         run: |
           conda list
           GOTTCHA2/gottcha2.py --version
+
+      - name: Run test dataset
+        run: |
+          GOTTCHA2/gottcha2.py -d GOTTCHA2/test/database/Ebola.species.fna -i test/SRR11241255_1k_reads.fastq.gz
+          cat GOTTCHA2/SRR11241255_1k_reads.tsv | grep 'Zaire ebolavirus'
