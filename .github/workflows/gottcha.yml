@@ -7,7 +7,7 @@ on:
     branches: [ master, develop ]
 jobs:
   functional-tests:
-    name: EpiCoV_downloader test (${{ matrix.os }})
+    name: GOTTCHA2 test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
