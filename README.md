@@ -9,6 +9,7 @@ was applied successfully to data generated from spiked environmental and clinica
 demonstrates superior performance compared with other available tools.
 
 GOTTCHAv2 is currently under development in BETA stage. Pre-built databases for v1 are incompatible with v2.
+[![gottcha2](https://github.com/poeli/GOTTCHA2/workflows/gottcha/badge.svg)](https://github.com/poeli/GOTTCHA2/actions?query=workflow%3Agottcha) 
 
 -------------------------------------------------------------------
 ## DEPENDENCIES
