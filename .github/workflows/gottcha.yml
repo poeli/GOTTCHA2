@@ -32,5 +32,5 @@ jobs:
 
       - name: Run test dataset
         run: |
-          GOTTCHA2/gottcha2.py -d GOTTCHA2/test/database/Ebola.species.fna -i test/SRR11241255_1k_reads.fastq.gz
-          cat GOTTCHA2/SRR11241255_1k_reads.tsv | grep 'Zaire ebolavirus'
+          GOTTCHA2/gottcha2.py -d GOTTCHA2/test/database/Ebola.species.fna -i GOTTCHA2/test/SRR11241255_1k_reads.fastq.gz
+          cat SRR11241255_1k_reads.tsv | grep 'Zaire ebolavirus'
