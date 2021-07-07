@@ -83,6 +83,8 @@ def taxid2rank(tid):
 def taxid2name(tid):
     return nodes[nodes[tid].parent].name
 
+def taxid2lineageDICT(tid):
+    return taxid2lineage(tid)
 #returns taxonomy in the format of a dictionary
 def taxid2lineage(tid):
     ret = {}
