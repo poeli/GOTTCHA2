@@ -34,6 +34,7 @@ from re import compile as recompile
 from multiprocessing import Pool
 from itertools import chain
 import math
+import gtdb_taxonomy as gd
 
 def parse_params( ver ):
     p = ap.ArgumentParser( prog='gottcha2.py', description="""Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an
@@ -62,7 +63,7 @@ def parse_params( ver ):
 
     p.add_argument( '-np','--nanopore', action="store_true",
                     help="Adjust options for Nanopore reads. The 'mismatch' option will be ignored. [-xm map-ont -mr 1]")
-                    
+
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
                     help="Mismatch penalty for the aligner. [default: 10]")
 
@@ -334,7 +335,7 @@ def process_sam_file( sam_fn, numthreads, numlines ):
     return result, mapped_reads
 
 def is_descendant( taxid, taxid_ant ):
-    fullLineage = gt.taxid2fullLineage( taxid )
+    fullLineage = gd.taxid2fullLineage( taxid )
     if "|%s|" % taxid_ant in fullLineage:
         return True
     else:
@@ -369,7 +370,7 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
         if not (pri_aln_flag and valid_flag): continue
 
         acc, start, stop, t = ref.split('|')
-        fullLineage = gt.taxid2fullLineage(t)
+        fullLineage = gd.taxid2fullLineage(t)
 
         if int(flag) & 16:
             g = findall(r'\d+\w', cigr)
@@ -425,7 +426,7 @@ def group_refs_to_strains(r):
     }, inplace=True)
 
     str_df['ZSCORE'] = str_df.apply(lambda x: pile_lvl_zscore(x.TOTAL_BP_MAPPED, x.TOL_SIG_LENGTH, x.LINEAR_LEN), axis=1)
-    
+
     return str_df
 
 def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
@@ -446,8 +447,8 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
                     (str_df['ZSCORE'] <= mz)
 
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
-        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['name'])
-        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
+        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDICT(x, True, True)[rank]['name'])
+        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDICT(x, True, True)[rank]['taxid'])
         str_df['LEVEL'] = rank
 
         # rollup strains that make cutoffs
@@ -459,7 +460,7 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
                 'LEVEL':'first',
                 'LVL_TAXID':'first',
                 'TOTAL_BP_MAPPED': sum, 'READ_COUNT': sum, 'TOTAL_BP_MISMATCH': sum,
-                'LINEAR_LEN': sum, 'MAPPED_SIG_LENGTH': sum, 'TOL_SIG_LENGTH': sum, 
+                'LINEAR_LEN': sum, 'MAPPED_SIG_LENGTH': sum, 'TOL_SIG_LENGTH': sum,
                 'ROLLUP_DOC': sum, 'BEST_DOC': max, 'BEST_LINEAR_COV': max, 'ZSCORE': min,
             }).reset_index().copy()
 
@@ -471,11 +472,11 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
         lvl_df['NOTE'] = ""
         if major_ranks[rank] > major_ranks[tg_rank]:
             lvl_df['NOTE'] = f"Not shown ({rank}-result biased); "
-        
+
         # concart ranks-dataframe to the report-dataframe
         rep_df = pd.concat([rep_df, lvl_df.sort_values('ABUNDANCE', ascending=False)], sort=False)
 
-    rep_df["LINEAR_COV"] = rep_df["LINEAR_LEN"]/rep_df["TOL_SIG_LENGTH"]      
+    rep_df["LINEAR_COV"] = rep_df["LINEAR_LEN"]/rep_df["TOL_SIG_LENGTH"]
     rep_df["LINEAR_COV_MAPPED_SIG"] = rep_df["LINEAR_LEN"]/rep_df["MAPPED_SIG_LENGTH"]
     rep_df["DOC"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["TOL_SIG_LENGTH"]
     rep_df["LINEAR_DOC"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["LINEAR_LEN"]
@@ -521,9 +522,9 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     sep = ',' if fmt=='csv' else '\t'
     # save full report
     rep_df[cols].to_csv(fullreport_o, index=False, sep=sep, float_format='%.6f')
-    # save summary    
+    # save summary
     qualified_df.to_csv(o, index=False, sep=sep, float_format='%.6f')
-        
+
     return True
 
 def generaete_biom_file(res_df, o, tg_rank, sampleid):
@@ -535,11 +536,11 @@ def generaete_biom_file(res_df, o, tg_rank, sampleid):
     from biom.table import Table
     if biom.__version__ < '2.1.7':
         sys.exit("[ERROR] Biom library requires v2.1.7 or above.\n")
-    
+
     target_df = pd.DataFrame()
     target_idx = (res_df['LEVEL']==tg_rank)
     target_df = res_df.loc[target_idx, ['ABUNDANCE','TAXID']]
-    target_df['LINEAGE'] = target_df['TAXID'].apply(lambda x: gt.taxid2lineage(x, True, True)).str.split('|')
+    target_df['LINEAGE'] = target_df['TAXID'].apply(lambda x: gd.taxid2lineage(x, True, True)).str.split('|')
 
     sample_ids = [sampleid]
     data = np.array(target_df['ABUNDANCE']).reshape(len(target_df), 1)
@@ -554,7 +555,7 @@ def generaete_lineage_file(target_df, o, tg_rank):
     """
     output abundance-lineage in tsv format
     """
-    lineage_df = target_df['TAXID'].apply(lambda x: gt.taxid2lineage(x, True, True)).str.split('|', expand=True)
+    lineage_df = target_df['TAXID'].apply(lambda x: gd.taxid2lineage(x, True, True)).str.split('|', expand=True)
     result = pd.concat([target_df['ABUNDANCE'], lineage_df], axis=1, sort=False)
     result.to_csv(o, index=False, header=False, sep='\t', float_format='%.4f')
 
@@ -565,7 +566,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     mapping reads to database
     """
     input_file = " ".join([x.name for x in reads])
-    
+
     sr_opts = f"-x {presetx} --second=no -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N1 -n1 -p1 -m24 -s30"
     if nanopore:
         sr_opts = f"-x {presetx} --second=no -a"
@@ -659,7 +660,7 @@ if __name__ == '__main__':
             outfile = "%s/%s.csv" % (argvs.outdir, argvs.prefix)
         elif argvs.format == "biom":
             outfile = "%s/%s.biom" % (argvs.outdir, argvs.prefix)
-        
+
         out_fp = open(outfile, 'w')
 
     print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
@@ -683,7 +684,8 @@ if __name__ == '__main__':
     custom_taxa_tsv = None
     if os.path.isfile( argvs.database + ".tax.tsv" ):
         custom_taxa_tsv = argvs.database+".tax.tsv"
-    gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
+    #gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
+    gd.loadGTDB('./')
     print_message( "Done.", argvs.silent, begin_t, logfile )
 
     #load database stats
@@ -705,7 +707,7 @@ if __name__ == '__main__':
             print_message( "Done mapping reads to %s signature database." % argvs.dbLevel, argvs.silent, begin_t, logfile )
             print_message( "Mapped SAM file saved to %s." % samfile, argvs.silent, begin_t, logfile )
             sam_fp = open( samfile, "r" )
-    
+
     if argvs.extract:
         extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads )
         print_message( "Done extracting reads to %s." % outfile, argvs.silent, begin_t, logfile )
