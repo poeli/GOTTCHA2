@@ -3,7 +3,6 @@ import sys
 import io
 import taxonomy
 import requests
-import wget
 import os
 import tarfile
 
@@ -84,7 +83,7 @@ def taxid2name(tid):
     return nodes[nodes[tid].parent].name
 
 def taxid2lineageDICT(tid, x, y):
-    return taxid2lineage(tid)
+    return taxid2lineage(tid, x, y)
 #returns taxonomy in the format of a dictionary
 def taxid2lineage(tid,x, y):
     ret = {}
