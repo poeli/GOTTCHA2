@@ -54,6 +54,9 @@ def parse_params( ver ):
     p.add_argument( '-d','--database', metavar='[MINIMAP2_INDEX]', type=str, default=None,
                     help="The path of signature database. The database can be in FASTA format or minimap2 index (5 files).")
 
+    p.add_argument('-g','--gtdb',metavar='[GTDB_PATH]', type=str, default=None,
+                    help="The path of the gtdb metadata and taxonomy files.")
+
     p.add_argument( '-l','--dbLevel', metavar='[LEVEL]', type=str, default='',
                     choices=['superkingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'strain'],
                     help="""Specify the taxonomic level of the input database. You can choose one rank from "superkingdom", "phylum", "class", "order", "family", "genus", "species" and "strain". The value will be auto-detected if the input database ended with levels (e.g. GOTTCHA_db.species).""")
@@ -685,7 +688,7 @@ if __name__ == '__main__':
     if os.path.isfile( argvs.database + ".tax.tsv" ):
         custom_taxa_tsv = argvs.database+".tax.tsv"
     gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
-    gd.loadGTDB('./')
+    gd.loadGTDB(argvs.gtdb)
     print_message( "Done.", argvs.silent, begin_t, logfile )
 
     #load database stats
