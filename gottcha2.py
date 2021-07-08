@@ -447,8 +447,8 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
                     (str_df['ZSCORE'] <= mz)
 
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
-        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDICT(x, True, True)[rank]['name'])
-        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDICT(x, True, True)[rank]['taxid'])
+        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)[rank]['name'])
+        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)[rank]['taxid'])
         str_df['LEVEL'] = rank
 
         # rollup strains that make cutoffs
@@ -540,7 +540,7 @@ def generaete_biom_file(res_df, o, tg_rank, sampleid):
     target_df = pd.DataFrame()
     target_idx = (res_df['LEVEL']==tg_rank)
     target_df = res_df.loc[target_idx, ['ABUNDANCE','TAXID']]
-    target_df['LINEAGE'] = target_df['TAXID'].apply(lambda x: gd.taxid2lineage(x, True, True)).str.split('|')
+    target_df['LINEAGE'] = target_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)).str.split('|')
 
     sample_ids = [sampleid]
     data = np.array(target_df['ABUNDANCE']).reshape(len(target_df), 1)
@@ -555,7 +555,7 @@ def generaete_lineage_file(target_df, o, tg_rank):
     """
     output abundance-lineage in tsv format
     """
-    lineage_df = target_df['TAXID'].apply(lambda x: gd.taxid2lineage(x, True, True)).str.split('|', expand=True)
+    lineage_df = target_df['TAXID'].apply(lambda x: gt.taxid2lineageDEFAULT(x)).str.split('|', expand=True)
     result = pd.concat([target_df['ABUNDANCE'], lineage_df], axis=1, sort=False)
     result.to_csv(o, index=False, header=False, sep='\t', float_format='%.4f')
 
@@ -684,7 +684,7 @@ if __name__ == '__main__':
     custom_taxa_tsv = None
     if os.path.isfile( argvs.database + ".tax.tsv" ):
         custom_taxa_tsv = argvs.database+".tax.tsv"
-    #gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
+    gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
     gd.loadGTDB('./')
     print_message( "Done.", argvs.silent, begin_t, logfile )
 

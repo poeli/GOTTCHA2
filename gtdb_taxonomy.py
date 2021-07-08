@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import sys
 import io
-import taxonomy
+import taxonomy as t
 import requests
 import os
 import tarfile
@@ -82,10 +82,10 @@ def taxid2rank(tid):
 def taxid2name(tid):
     return nodes[nodes[tid].parent].name
 
-def taxid2lineageDICT(tid, x, y):
-    return taxid2lineage(tid, x, y)
+def taxid2lineageDICT(tid):
+    return taxid2lineage(tid)
 #returns taxonomy in the format of a dictionary
-def taxid2lineage(tid,x, y):
+def taxid2lineage(tid):
     ret = {}
     gtdb_id =  ncbi_tax[tid]
     node = nodes[gtdb_id]
@@ -239,6 +239,14 @@ def loadGTDBtaxonomy(taxonomy):
             if not line:
                 continue
 
+def taxid2lineageDEFAULT(taxid):
+    try:
+        ret = taxid2lineage(taxid)
+    except:
+        try:
+            ret = t.taxid2lineage(taxid)
+        except:
+            raise Exception('Key Error')
 
 if __name__ == '__main__':
     loadGTDB(sys.argv[1] if len(sys.argv)>1 else None)
