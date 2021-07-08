@@ -555,7 +555,7 @@ def generaete_lineage_file(target_df, o, tg_rank):
     """
     output abundance-lineage in tsv format
     """
-    lineage_df = target_df['TAXID'].apply(lambda x: gt.taxid2lineageDEFAULT(x)).str.split('|', expand=True)
+    lineage_df = target_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)).str.split('|', expand=True)
     result = pd.concat([target_df['ABUNDANCE'], lineage_df], axis=1, sort=False)
     result.to_csv(o, index=False, header=False, sep='\t', float_format='%.4f')
 
