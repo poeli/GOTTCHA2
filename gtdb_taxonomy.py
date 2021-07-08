@@ -86,7 +86,7 @@ def taxid2name(tid):
 def taxid2lineageDICT(tid, x, y):
     return taxid2lineage(tid)
 #returns taxonomy in the format of a dictionary
-def taxid2lineage(tid):
+def taxid2lineage(tid,x, y):
     ret = {}
     gtdb_id =  ncbi_tax[tid]
     node = nodes[gtdb_id]
