@@ -240,6 +240,7 @@ def loadGTDBtaxonomy(taxonomy):
                 continue
 
 def taxid2lineageDEFAULT(taxid):
+    ret = None
     try:
         ret = taxid2lineage(taxid)
     except:
@@ -247,6 +248,7 @@ def taxid2lineageDEFAULT(taxid):
             ret = t.taxid2lineage(taxid)
         except:
             raise Exception('Key Error')
+    return ret
 
 if __name__ == '__main__':
     loadGTDB(sys.argv[1] if len(sys.argv)>1 else None)
