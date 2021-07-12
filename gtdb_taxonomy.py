@@ -248,6 +248,7 @@ def taxid2lineageDEFAULT(taxid):
             ret = t.taxid2lineageDICT(taxid)
         except:
             raise Exception('Key Error')
+    print(taxid)
     print(ret)
     return ret
 
