@@ -16,7 +16,10 @@ ncbi_tax = {}
 ranks = ['strain','species','genus','family','order','class','phylum','superkingdom']
 #rank dictionary with letters for keys
 rankDict = {'s':'species','g':'genus','f':'family','o':'order','c':'class','p':'phylum','d':'superkingdom'}
-
+#  key gtdb accession, value ncbi taxid
+ncbi_taxid = {}
+# key gtdb accession, value ncbi spec taxid
+ncbi_spec_taxid = {}
 #Class for each Taxon in the taxonomy tree
 class Taxon():
     def __init__(self, assigned_id, gtdb_id, parent):
@@ -210,11 +213,15 @@ def loadGTDBMetadata(metadata):
     with open(metadata, encoding="utf-8") as f:
         header = f.readline().rstrip('\r\n').split('\t')
         gtdb_id = header.index("gtdb_genome_representative")
+        tax = header.index("ncbi_taxid")
+        spec_tax = header.index("ncbi_species_taxidå")
         for line in f:
             line = line.rstrip('\r\n').split('\t')
             ncbi_id = '_'.join(line[gtdb_id].split("_")[1:])
             gtdb_tax[line[gtdb_id]] = ncbi_id
             ncbi_tax[ncbi_id] = line[gtdb_id]
+            ncbi_taxid[ncbi_id] = line[tax]
+            ncbi_spec_taxid[ncbi_id] = line[spec_tax]
 
 #load taxonomy file
 def loadGTDBtaxonomy(taxonomy):
@@ -246,6 +253,8 @@ def taxid2lineageDEFAULT(taxid):
     except:
         try:
             ret = t.taxid2lineageDICT(taxid)
+            if ret == "unknown":
+                ret  t.taxid2lineageDICT(ncbi_spec_taxid[taxid])
         except:
             raise Exception('Key Error')
     print(taxid)
