@@ -254,7 +254,7 @@ def taxid2lineageDEFAULT(taxid):
         try:
             ret = t.taxid2lineageDICT(taxid)
             if ret == "unknown":
-                ret  t.taxid2lineageDICT(ncbi_spec_taxid[taxid])
+                ret = t.taxid2lineageDICT(ncbi_spec_taxid[taxid])
         except:
             raise Exception('Key Error')
     print(taxid)
