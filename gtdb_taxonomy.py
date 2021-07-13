@@ -214,7 +214,7 @@ def loadGTDBMetadata(metadata):
         header = f.readline().rstrip('\r\n').split('\t')
         gtdb_id = header.index("gtdb_genome_representative")
         tax = header.index("ncbi_taxid")
-        spec_tax = header.index("ncbi_species_taxidå")
+        spec_tax = header.index("ncbi_species_taxid")
         for line in f:
             line = line.rstrip('\r\n').split('\t')
             ncbi_id = '_'.join(line[gtdb_id].split("_")[1:])
