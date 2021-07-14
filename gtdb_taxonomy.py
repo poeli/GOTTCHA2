@@ -245,6 +245,7 @@ def loadGTDBtaxonomy(taxonomy):
     if not os.path.isfile(taxonomy):
         raise Exception(taxonomy + "File Not Found")
     graph.add_node('root', None)
+    nodes['root'] = None
     with open(taxonomy, encoding="utf-8") as f:
         for line in f:
             line = line.rstrip('\r\n')
