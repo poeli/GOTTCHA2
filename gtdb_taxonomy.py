@@ -220,7 +220,7 @@ def gtdb2CustomDB(p):
         while parent != 'root':
             node = nodes[parent]
             parent = node.parent
-            cus_taxonomy_file.write(taxid+"\t"+node.depth+"\t"+nodes[node.parent].id+"\t"+node.rank+"\t"+node.name+"\n")
+            cus_taxonomy_file.write('\t'.join((str(taxid),str(node.depth),str(nodes[node.parent].id),node.rank,node.name)))
     cus_taxonomy_file.close()
 
 #load metadata file
