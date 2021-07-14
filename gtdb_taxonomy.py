@@ -222,8 +222,6 @@ def loadGTDBMetadata(metadata):
             ncbi_tax[ncbi_id] = line[gtdb_id]
             ncbi_taxid[ncbi_id] = line[tax]
             ncbi_spec_taxid[ncbi_id] = line[spec_tax]
-    print(ncbi_tax)
-    print(ncbi_taxid)
 
 #load taxonomy file
 def loadGTDBtaxonomy(taxonomy):
