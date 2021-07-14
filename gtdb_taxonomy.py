@@ -215,8 +215,8 @@ def gtdb2CustomDB(p):
         gtdb_id =  ncbi_tax[tid]
         node = nodes[gtdb_id]
         parent = node.parent
-        taxid = node.id    
-        cus_taxonomy_file.write(taxid+"\t"+node.depth+"\t"+nodes[node.parent].id+"\t"+node.rank+"\t"+node.name+"\n")
+        taxid = node.id
+        cus_taxonomy_file.write('\t'.join((str(taxid),str(node.depth),nodes[node.parent].id,node.rank,node.name)))
         while parent != 'root':
             node = nodes[parent]
             parent = node.parent
