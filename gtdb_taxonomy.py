@@ -217,6 +217,7 @@ def gtdb2CustomDB(p):
         parent = node.parent
         while parent != 'root':
             cus_taxonomy_file.write('\t'.join((str(node.id),str(node.depth),str(nodes[parent].id),node.rank,node.name)))
+            cus_taxonomy_file.write('\n')
             node = nodes[parent]
             parent = node.parent
     cus_taxonomy_file.close()
