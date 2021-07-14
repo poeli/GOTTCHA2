@@ -16,6 +16,8 @@ ncbi_tax = {}
 ranks = ['strain','species','genus','family','order','class','phylum','superkingdom']
 #rank dictionary with letters for keys
 rankDict = {'s':'species','g':'genus','f':'family','o':'order','c':'class','p':'phylum','d':'superkingdom'}
+#depthDict
+depthDict = {'s':7,'g':6,'f':5,'o':4,'c':3,'p':2,'d':1}
 #  key gtdb accession, value ncbi taxid
 ncbi_taxid = {}
 # key gtdb accession, value ncbi spec taxid
@@ -38,11 +40,13 @@ class Taxon():
          if len(splitName) > 1:
              self.name = splitName[1]
              self.rank = rankDict[splitName[0]]
+             self.depth = depthDict[splitName[0]]
         #a leaf
          else:
              self.name = gtdb_id
              self.rank = "strain"
              self.id = gtdb_id
+             self.depth = 8
 
 #Taxonomy tree
 class Graph():
@@ -205,6 +209,18 @@ def loadNCBITaxonomy(metadata):
                 if not line:
                     continue
 
+def gtdb2CustomDB(p):
+    gtdb_id =  ncbi_tax[tid]
+    node = nodes[gtdb_id]
+    parent = node.parent
+    taxid = node.id
+    cus_taxonomy_file = open(p,"w")
+    cus_taxonomy_file.write(taxid+"\t"+node.depth+"\t"+nodes[node.parent].id+"\t"+node.rank+"\t"+node.name+"\n")
+    while parent != 'root':
+        node = nodes[parent]
+        parent = node.parent
+        cus_taxonomy_file.write(taxid+"\t"+node.depth+"\t"+nodes[node.parent].id+"\t"+node.rank+"\t"+node.name+"\n")
+    cus_taxonomy_file.close()
 
 #load metadata file
 def loadGTDBMetadata(metadata):

@@ -686,11 +686,12 @@ if __name__ == '__main__':
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
+    gd.loadGTDB(argvs.gtdb)
+    gd.gtdb2CustomDB(argvs.database+".tax.tsv")
     custom_taxa_tsv = None
     if os.path.isfile( argvs.database + ".tax.tsv" ):
         custom_taxa_tsv = argvs.database+".tax.tsv"
     gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
-    gd.loadGTDB(argvs.gtdb)
     print_message( "Done.", argvs.silent, begin_t, logfile )
 
     #load database stats
