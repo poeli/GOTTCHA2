@@ -439,9 +439,9 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
     major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7,"strain":8}
 
     # roll up references to strains
-    print(r)
-    print(str_df)
+
     str_df = group_refs_to_strains(r)
+    print(str_df)
     # produce columns for the final report at each ranks
     rep_df = pd.DataFrame()
 
