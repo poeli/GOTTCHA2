@@ -215,12 +215,10 @@ def gtdb2CustomDB(p):
         gtdb_id =  ncbi_tax[tid]
         node = nodes[gtdb_id]
         parent = node.parent
-        taxid = node.id
-        cus_taxonomy_file.write('\t'.join((str(taxid),str(node.depth),str(nodes[node.parent].id),node.rank,node.name)))
         while parent != 'root':
+            cus_taxonomy_file.write('\t'.join((str(node.id),str(node.depth),str(nodes[parent].id),node.rank,node.name)))
             node = nodes[parent]
             parent = node.parent
-            cus_taxonomy_file.write('\t'.join((str(taxid),str(node.depth),str(nodes[node.parent].id),node.rank,node.name)))
     cus_taxonomy_file.close()
 
 #load metadata file
