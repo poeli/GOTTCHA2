@@ -210,16 +210,17 @@ def loadNCBITaxonomy(metadata):
                     continue
 
 def gtdb2CustomDB(p):
-    gtdb_id =  ncbi_tax[tid]
-    node = nodes[gtdb_id]
-    parent = node.parent
-    taxid = node.id
     cus_taxonomy_file = open(p,"w")
-    cus_taxonomy_file.write(taxid+"\t"+node.depth+"\t"+nodes[node.parent].id+"\t"+node.rank+"\t"+node.name+"\n")
-    while parent != 'root':
-        node = nodes[parent]
+    for tid in ncbi_tax:
+        gtdb_id =  ncbi_tax[tid]
+        node = nodes[gtdb_id]
         parent = node.parent
+        taxid = node.id    
         cus_taxonomy_file.write(taxid+"\t"+node.depth+"\t"+nodes[node.parent].id+"\t"+node.rank+"\t"+node.name+"\n")
+        while parent != 'root':
+            node = nodes[parent]
+            parent = node.parent
+            cus_taxonomy_file.write(taxid+"\t"+node.depth+"\t"+nodes[node.parent].id+"\t"+node.rank+"\t"+node.name+"\n")
     cus_taxonomy_file.close()
 
 #load metadata file
