@@ -18,10 +18,6 @@ ranks = ['strain','species','genus','family','order','class','phylum','superking
 rankDict = {'s':'species','g':'genus','f':'family','o':'order','c':'class','p':'phylum','d':'superkingdom'}
 #depthDict
 depthDict = {'s':7,'g':6,'f':5,'o':4,'c':3,'p':2,'d':1}
-#  key gtdb accession, value ncbi taxid
-ncbi_taxid = {}
-# key gtdb accession, value ncbi spec taxid
-ncbi_spec_taxid = {}
 #Class for each Taxon in the taxonomy tree
 class Taxon():
     def __init__(self, assigned_id, gtdb_id, parent):
@@ -213,6 +209,8 @@ def gtdb2CustomDB(p):
     cus_taxonomy_file = open(p,"w")
     for tid in ncbi_tax:
         gtdb_id =  ncbi_tax[tid]
+        if gtdb_id not in nodes:
+            continue
         node = nodes[gtdb_id]
         parent = node.parent
         while parent != 'root':
@@ -236,8 +234,7 @@ def loadGTDBMetadata(metadata):
             ncbi_id = '_'.join(line[gtdb_id].split("_")[1:])
             gtdb_tax[line[gtdb_id]] = ncbi_id
             ncbi_tax[ncbi_id] = line[gtdb_id]
-            ncbi_taxid[ncbi_id] = line[tax]
-            ncbi_spec_taxid[ncbi_id] = line[spec_tax]
+
 
 #load taxonomy file
 def loadGTDBtaxonomy(taxonomy):
