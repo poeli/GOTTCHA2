@@ -452,9 +452,9 @@ def EM(df):
     l = [(1/row_count)] * row_count
     df['EM_ABUNDANCE'] = l
     # Initialize old abundance Vector
-    old = [0] * row_count
+    old = [0.0] * row_count
     #Initialize Expected Reads Vector
-    expected_reads = [0] * row_count
+    expected_reads = [0.0] * row_count
     df['EXPECTED_READS'] = expected_reads
     # start loop
     diff = df['EXPECTED_READS'] - old
