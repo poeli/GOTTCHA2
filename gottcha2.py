@@ -457,16 +457,16 @@ def EM(df):
     expected_reads = [0.0] * row_count
     df['EXPECTED_READS'] = expected_reads
     # start loop
-    diff = df['EXPECTED_READS'] - old
+    diff = df['EM_ABUNDANCE'] - old
     while(all(d > (10 ** -5) for d in diff)):
         # update old abundance
-        old = df['EXPECTED_READS']
+        old = df['EM_ABUNDANCE']
         #Expectation Step
         df = expectation(df, row_count)
         #Maximization Step
         df = maximization(df, row_count)
         #Reassign old
-        diff = df['EXPECTED_READS'] - old
+        diff = df['EM_ABUNDANCE'] - old
 
     return df
 
