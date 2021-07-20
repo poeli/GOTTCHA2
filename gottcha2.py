@@ -434,15 +434,18 @@ def group_refs_to_strains(r):
 def expectation(df, row_count):
     for i in range(row_count):
         df['EXPECTED_READS'][i] = df['READ_COUNT'][i] * df['EM_ABUNDANCE'][i]
-        for j in range(row_count) if j != i:
-            df['EXPECTED_READS'][i] = df['EXPECTED_READS'][i] / (df['READ_COUNT'][j] * df['EM_ABUNDANCE'][j])
+        for j in range(row_count):
+            if j != i:
+                df['EXPECTED_READS'][i] = df['EXPECTED_READS'][i] / (df['READ_COUNT'][j] * df['EM_ABUNDANCE'][j])
     return df
 
 def maximization(df, row_count):
     for i in range(row_count):
         df['EM_ABUNDANCE'][i] = df['EXPECTED_READS'][i] / df['LINEAR_LEN'][i]
-        for j in range(row_count) if j != i:
-            df['EM_ABUNDANCE'][i] = df['EM_ABUNDANCE'][i] / (df['EXPECTED_READS'][j] / df['LINEAR_LEN'][j])
+        for j in range(row_count):
+            if j != i:
+                df['EM_ABUNDANCE'][i] = df['EM_ABUNDANCE'][i] / (df['EXPECTED_READS'][j] / df['LINEAR_LEN'][j])
+    return df
 def EM(df):
     #Initialize Abundance Vector
     row_count = len(df)
