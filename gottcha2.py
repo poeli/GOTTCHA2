@@ -431,6 +431,41 @@ def group_refs_to_strains(r):
     str_df['ZSCORE'] = str_df.apply(lambda x: pile_lvl_zscore(x.TOTAL_BP_MAPPED, x.TOL_SIG_LENGTH, x.LINEAR_LEN), axis=1)
 
     return str_df
+def expectation(df, row_count):
+    for i in range(row_count):
+        df['EXPECTED_READS'][i] = df['READ_COUNT'][i] * df['EM_ABUNDANCE'][i]
+        for j in range(row_count) if j != i:
+            df['EXPECTED_READS'][i] = df['EXPECTED_READS'][i] / (df['READ_COUNT'][j] * df['EM_ABUNDANCE'][j])
+    return df
+
+def maximization(df, row_count):
+    for i in range(row_count):
+        df['EM_ABUNDANCE'][i] = df['EXPECTED_READS'][i] / df['LINEAR_LEN'][i]
+        for j in range(row_count) if j != i:
+            df['EM_ABUNDANCE'][i] = df['EM_ABUNDANCE'][i] / (df['EXPECTED_READS'][j] / df['LINEAR_LEN'][j])
+def EM(df):
+    #Initialize Abundance Vector
+    row_count = len(df)
+    l = [(1/row_count)] * row_count
+    df['EM_ABUNDANCE'] = l
+    # Initialize old abundance Vector
+    old = [0] * row_count
+    #Initialize Expected Reads Vector
+    expected_reads = [0] * row_count
+    df['EXPECTED_READS'] = expected_reads
+    # start loop
+    diff = df['EXPECTED_READS'] - old
+    while(all(d > (10 ** -5) for d in diff)):
+        # update old abundance
+        old = df['EXPECTED_READS']
+        #Expectation Step
+        df = expectation(df, row_count)
+        #Maximization Step
+        df = maximization(df, row_count)
+        #Reassign old
+        diff = df['EXPECTED_READS'] - old
+
+    return df
 
 def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
     """
@@ -472,6 +507,10 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
         lvl_df['ABUNDANCE'] = lvl_df[abu_col]
         tol_abu = lvl_df[abu_col].sum()
         lvl_df['REL_ABUNDANCE'] = lvl_df[abu_col]/tol_abu
+
+        #computer relative abundance via EM
+        #TODO
+        lvl_df = EM(lvl_df)
 
         # add NOTE if ranks is higher than target rank
         lvl_df['NOTE'] = ""

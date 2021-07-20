@@ -79,7 +79,7 @@ graph_ncbi = Graph()
 
 #assembly accession to rank
 def taxid2rank(tid):
-    return nodes[tid].rank
+    return nodes[ncbi_tax[tid]].rank
 
 #assembly accession to name
 def taxid2name(tid):
