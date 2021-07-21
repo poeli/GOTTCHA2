@@ -433,18 +433,18 @@ def group_refs_to_strains(r):
     return str_df
 def expectation(df, row_count):
     for i in range(row_count):
-        df.loc['EXPECTED_READS',i] = df['READ_COUNT'][i] * df['EM_ABUNDANCE'][i]
+        df.loc[i,'EXPECTED_READS'] = df['READ_COUNT'][i] * df['EM_ABUNDANCE'][i]
         for j in range(row_count):
             if j != i:
-                df.loc['EXPECTED_READS',i] = df['EXPECTED_READS'][i] / (df['READ_COUNT'][j] * df['EM_ABUNDANCE'][j])
+                df.loc[i,'EXPECTED_READS'] = df['EXPECTED_READS'][i] / (df['READ_COUNT'][j] * df['EM_ABUNDANCE'][j])
     return df
 
 def maximization(df, row_count):
     for i in range(row_count):
-        df.loc['EM_ABUNDANCE',i] = df['EXPECTED_READS'][i] / df['LINEAR_LEN'][i]
+        df.loc[i,'EM_ABUNDANCE'] = df['EXPECTED_READS'][i] / df['LINEAR_LEN'][i]
         for j in range(row_count):
             if j != i:
-                df.loc['EM_ABUNDANCE',i] = df['EM_ABUNDANCE'][i] / (df['EXPECTED_READS'][j] / df['LINEAR_LEN'][j])
+                df.loc[i,'EM_ABUNDANCE'] = df['EM_ABUNDANCE'][i] / (df['EXPECTED_READS'][j] / df['LINEAR_LEN'][j])
     return df
 def EM(df):
     #Initialize Abundance Vector
