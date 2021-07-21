@@ -433,18 +433,18 @@ def group_refs_to_strains(r):
     return str_df
 def expectation(df, row_count):
     for i in range(row_count):
-        df['EXPECTED_READS'][i] = df['READ_COUNT'][i] * df['EM_ABUNDANCE'][i]
+        df.loc[:,('EXPECTED_READS',i)] = df['READ_COUNT'][i] * df['EM_ABUNDANCE'][i]
         for j in range(row_count):
             if j != i:
-                df['EXPECTED_READS'][i] = df['EXPECTED_READS'][i] / (df['READ_COUNT'][j] * df['EM_ABUNDANCE'][j])
+                df.loc[:,('EXPECTED_READS',i)] = df['EXPECTED_READS'][i] / (df['READ_COUNT'][j] * df['EM_ABUNDANCE'][j])
     return df
 
 def maximization(df, row_count):
     for i in range(row_count):
-        df['EM_ABUNDANCE'][i] = df['EXPECTED_READS'][i] / df['LINEAR_LEN'][i]
+        df.loc[:,('EM_ABUNDANCE',i)] = df['EXPECTED_READS'][i] / df['LINEAR_LEN'][i]
         for j in range(row_count):
             if j != i:
-                df['EM_ABUNDANCE'][i] = df['EM_ABUNDANCE'][i] / (df['EXPECTED_READS'][j] / df['LINEAR_LEN'][j])
+                df.loc[:,('EM_ABUNDANCE',i)] = df['EM_ABUNDANCE'][i] / (df['EXPECTED_READS'][j] / df['LINEAR_LEN'][j])
     return df
 def EM(df):
     #Initialize Abundance Vector
@@ -462,9 +462,9 @@ def EM(df):
         # update old abundance
         old = df['EM_ABUNDANCE']
         #Expectation Step
-        df = expectation(df, row_count)
+        df.update(expectation(df, row_count))
         #Maximization Step
-        df = maximization(df, row_count)
+        df.update(maximization(df, row_count))
         #Reassign old
         diff = df['EM_ABUNDANCE'] - old
 
@@ -512,8 +512,7 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
         lvl_df['REL_ABUNDANCE'] = lvl_df[abu_col]/tol_abu
 
         #computer relative abundance via EM
-        #TODO
-        lvl_df = EM(lvl_df)
+        lvl_df.update(EM(lvl_df))
 
         # add NOTE if ranks is higher than target rank
         lvl_df['NOTE'] = ""
