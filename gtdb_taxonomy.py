@@ -166,6 +166,9 @@ def loadGTDB(path):
     loadGTDBMetadata(str(path) + 'ar122_metadata.tsv')
     loadGTDBtaxonomy(str(path) + 'bac120_taxonomy.tsv')
     loadGTDBtaxonomy(str(path) + 'ar122_taxonomy.tsv')
+    custom_taxa_tsv = path + "gottcha_db_custom"
+    gtdb2CustomDB(custom_taxa_tsv + ".tax.tsv")
+    t.loadTaxonomy(cus_taxonomy_file = custom_taxa_tsv )
 
 #Load NCBI Taxonomies from GTDB Metadata file
 def loadNCBI(path):
@@ -267,8 +270,6 @@ def taxid2lineageDEFAULT(taxid):
     except:
         try:
             ret = t.taxid2lineageDICT(taxid)
-            if ret == "unknown":
-                ret = t.taxid2lineageDICT(ncbi_spec_taxid[taxid])
         except:
             raise Exception('Key Error')
     print(taxid)

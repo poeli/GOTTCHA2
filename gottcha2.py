@@ -268,7 +268,7 @@ def chunkify(fname, size=1*1024*1024):
             chunkStart = chunkEnd
             f.seek(size, 1)
             f.readline()
-            # put all alignments of a read in the same chunck
+            # put all al read in the same chunck
             line = f.readline().decode('ascii')
             tmp = line.split('\t')
             if chunkEnd <= fileEnd and line:
@@ -472,6 +472,9 @@ def EM(df):
         #Reassign old
         diff = df['EM_ABUNDANCE'] - old
 
+    tol_abu = lvl_df['EM_ABUNDANCE'].sum()
+    lvl_df['REL_EM_ABUNDANCE'] = lvl_df['EM_ABUNDANCE']/tol_abu
+    df.drop(columns=['EXPECTED_READS'])
     return df
 
 def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
@@ -731,7 +734,6 @@ if __name__ == '__main__':
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
     gd.loadGTDB(argvs.gtdb)
-    gd.gtdb2CustomDB(argvs.database+".tax.tsv")
     custom_taxa_tsv = None
     if os.path.isfile( argvs.database + ".tax.tsv" ):
         custom_taxa_tsv = argvs.database+".tax.tsv"
