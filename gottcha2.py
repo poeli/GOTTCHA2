@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+_line#!/usr/bin/env python3
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
@@ -565,11 +565,12 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
             'TOTAL_BP_MISMATCH', 'LINEAR_LEN', 'LINEAR_DOC', 'ROLLUP_DOC', 'REL_ABUNDANCE',
+            'REL_EM_ABUNDANCE',
             'LINEAR_COV', 'LINEAR_COV_MAPPED_SIG', 'BEST_LINEAR_COV', 'MAPPED_SIG_LENGTH', 'TOL_SIG_LENGTH',
             'ABUNDANCE', 'ZSCORE', 'NOTE']
 
     qualified_idx = (rep_df['NOTE']=="")
-    qualified_df = rep_df.loc[qualified_idx, cols[:10]]
+    qualified_df = rep_df.loc[qualified_idx, cols[:11]]
 
     sep = ',' if fmt=='csv' else '\t'
     # save full report
