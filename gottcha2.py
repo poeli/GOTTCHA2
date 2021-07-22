@@ -472,8 +472,8 @@ def EM(df):
         #Reassign old
         diff = df['EM_ABUNDANCE'] - old
 
-    tol_abu = lvl_df['EM_ABUNDANCE'].sum()
-    lvl_df['REL_EM_ABUNDANCE'] = lvl_df['EM_ABUNDANCE']/tol_abu
+    tol_abu = df['EM_ABUNDANCE'].sum()
+    df['REL_EM_ABUNDANCE'] = df['EM_ABUNDANCE']/tol_abu
     df.drop(columns=['EXPECTED_READS'])
     return df
 
