@@ -739,8 +739,7 @@ if __name__ == '__main__':
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
-    if argvs.gtdb != None:
-        gd.loadGTDB(argvs.gtdb)
+    gd.loadGTDB(argvs.gtdb)
     custom_taxa_tsv = None
     if os.path.isfile( argvs.database + ".tax.tsv" ):
         custom_taxa_tsv = argvs.database+".tax.tsv"
