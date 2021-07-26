@@ -500,8 +500,8 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
             str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)[rank]['name'])
             str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)[rank]['taxid'])
         else:
-            str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDEFAULT(x)[rank]['name'])
-            str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDEFAULT(x)[rank]['taxid'])
+            str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x)[rank]['name'])
+            str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x)[rank]['taxid'])
 
         str_df['LEVEL'] = rank
 
