@@ -477,7 +477,7 @@ def EM(df):
     df.drop(columns=['EXPECTED_READS'])
     return df
 
-def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
+def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
     """
     Take parsed SAM output and rollup to superkingdoms
     """
@@ -496,8 +496,13 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
                     (str_df['ZSCORE'] <= mz)
 
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
-        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)[rank]['name'])
-        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)[rank]['taxid'])
+        if g != None:
+            str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)[rank]['name'])
+            str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gd.taxid2lineageDEFAULT(x)[rank]['taxid'])
+        else:
+            str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDEFAULT(x)[rank]['name'])
+            str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDEFAULT(x)[rank]['taxid'])
+
         str_df['LEVEL'] = rank
 
         # rollup strains that make cutoffs
@@ -734,7 +739,8 @@ if __name__ == '__main__':
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
-    gd.loadGTDB(argvs.gtdb)
+    if argvs.gtdb != None:
+        gd.loadGTDB(argvs.gtdb)
     custom_taxa_tsv = None
     if os.path.isfile( argvs.database + ".tax.tsv" ):
         custom_taxa_tsv = argvs.database+".tax.tsv"
@@ -769,7 +775,7 @@ if __name__ == '__main__':
         print_message( "Done processing SAM file. %s qualified mapped reads." % mapped_r_cnt, argvs.silent, begin_t, logfile )
 
         if mapped_r_cnt:
-            res_df = roll_up_taxonomy(res, db_stats, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
+            res_df = roll_up_taxonomy(res, db_stats, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore, argvs.gtdb)
             print_message( "Done taxonomy rolling up.", argvs.silent, begin_t, logfile )
 
             if not len(res_df):
