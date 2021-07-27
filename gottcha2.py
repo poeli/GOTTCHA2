@@ -453,6 +453,9 @@ def maximization(df, row_count):
 def EM(df):
     #Initialize Abundance Vector
     row_count = len(df)
+    #check divide by zero
+    if row_count == 0:
+        return df
     l = [(1/row_count)] * row_count
     df['EM_ABUNDANCE'] = l
     # Initialize old abundance Vector
