@@ -183,12 +183,6 @@ def loadASM(file):
                 continue
             elif line.startswith('assembly_accession'):
                 continue
-			#split each line in assembly_summary_refseq.txt:
-			#  0- 4  assembly_accession    bioproject      biosample         wgs_master           refseq_category
-			#  5- 9  taxid                 species_taxid   organism_name     infraspecific_name   isolate
-			# 10-14  version_status        assembly_level  release_type      genome_rep           seq_rel_date
-			# 15-19  asm_name              submitter       gbrs_paired_asm   paired_asm_comp      ftp_path
-			# 20-21  excluded_from_refseq  relation_to_type_material
             for line in f:
                 refseq2genbank[line[0]] = line[17]
 
