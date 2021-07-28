@@ -97,10 +97,15 @@ def taxid2lineageDICT(tid):
 #transform ncbi accession to gtdb accession
 def gtdb_format(tid):
     ret = None
-    if "GCA" in tid:
+    if "RS_" in tid:
+        return tid
+    elif "GB_" in tid:
+        return tid
+    elif "GCA" in tid:
         ret = "GB_" + tid
     elif "GCF" in tid:
         ret = "RS_" + tid
+
     return ret
 
 #returns taxonomy in the format of a dictionary
