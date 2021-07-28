@@ -18,6 +18,10 @@ ranks = ['strain','species','genus','family','order','class','phylum','superking
 rankDict = {'s':'species','g':'genus','f':'family','o':'order','c':'class','p':'phylum','d':'superkingdom'}
 #depthDict
 depthDict = {'s':7,'g':6,'f':5,'o':4,'c':3,'p':2,'d':1}
+#refseq to genbank
+refseq2genbank = {}
+#asm exists
+asm = False
 #Class for each Taxon in the taxonomy tree
 class Taxon():
     def __init__(self, assigned_id, gtdb_id, parent):
@@ -162,6 +166,7 @@ def loadGTDB(path):
         path=""
 
 
+    loadASM(str(path) + 'assembly_summary.txt')
     loadGTDBMetadata(str(path) + 'bac120_metadata.tsv')
     loadGTDBMetadata(str(path) + 'ar122_metadata.tsv')
     loadGTDBtaxonomy(str(path) + 'bac120_taxonomy.tsv')
@@ -169,6 +174,16 @@ def loadGTDB(path):
     custom_taxa_tsv = path + "gottcha_db_custom"
     gtdb2CustomDB(custom_taxa_tsv + ".tax.tsv")
     t.loadTaxonomy(cus_taxonomy_file = custom_taxa_tsv )
+
+def loadASM(file):
+    if(os.path.isfile(file)):
+        with open(file, encoding="utf-8") as f:
+            asm = True
+            header = f.readline().rstrip("\r\n").split("\t")
+            a = header.index("assembly_accession")
+            m = header.index("gbrs_paired_asm")
+            for line in f:
+                refseq2genbank[a] = m
 
 #Load NCBI Taxonomies from GTDB Metadata file
 def loadNCBI(path):
@@ -269,9 +284,13 @@ def taxid2lineageDEFAULT(taxid):
         ret = taxid2lineage(taxid)
     except:
         try:
-            ret = t.taxid2lineageDICT(taxid)
+            if asm == True:
+                ret = taxid2lineage(refseq2genbank[taxid])
         except:
-            raise Exception('Key Error')
+            try:
+                ret = t.taxid2lineageDICT(taxid)
+            except:
+                raise Exception('Key Error')
     print(taxid)
     print(ret)
     return ret
