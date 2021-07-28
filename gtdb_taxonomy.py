@@ -180,9 +180,9 @@ def loadASM(file):
         with open(file, encoding="utf-8") as f:
             asm = True
             if line.startswith('#'):
-				continue
-			elif line.startswith('assembly_accession'):
-				continue
+                continue
+            elif line.startswith('assembly_accession'):
+                continue
 			#split each line in assembly_summary_refseq.txt:
 			#  0- 4  assembly_accession    bioproject      biosample         wgs_master           refseq_category
 			#  5- 9  taxid                 species_taxid   organism_name     infraspecific_name   isolate
