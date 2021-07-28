@@ -247,11 +247,13 @@ def loadGTDBMetadata(metadata):
         gtdb_id = header.index("gtdb_genome_representative")
         tax = header.index("ncbi_taxid")
         spec_tax = header.index("ncbi_species_taxid")
+        acc = header.index("accession")
         for line in f:
             line = line.rstrip('\r\n').split('\t')
             ncbi_id = '_'.join(line[gtdb_id].split("_")[1:])
             gtdb_tax[line[gtdb_id]] = ncbi_id
             ncbi_tax[ncbi_id] = line[gtdb_id]
+            rep2accession[line[gtdb_id]] = line[acc]
 
 
 #load taxonomy file
@@ -290,7 +292,10 @@ def taxid2lineageDEFAULT(taxid):
             try:
                 ret = t.taxid2lineageDICT(taxid)
             except:
-                raise Exception('Key Error')
+                try:
+                    ret = taxid2lineage(rep2accession[taxid])
+                except:
+                    raise Exception('Key Error')
     print(taxid)
     print(ret)
     return ret
