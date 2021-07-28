@@ -179,11 +179,18 @@ def loadASM(file):
     if(os.path.isfile(file)):
         with open(file, encoding="utf-8") as f:
             asm = True
-            header = f.readline().rstrip("\r\n").split("\t")
-            a = header.index("assembly_accession")
-            m = header.index("gbrs_paired_asm")
+            if line.startswith('#'):
+				continue
+			elif line.startswith('assembly_accession'):
+				continue
+			#split each line in assembly_summary_refseq.txt:
+			#  0- 4  assembly_accession    bioproject      biosample         wgs_master           refseq_category
+			#  5- 9  taxid                 species_taxid   organism_name     infraspecific_name   isolate
+			# 10-14  version_status        assembly_level  release_type      genome_rep           seq_rel_date
+			# 15-19  asm_name              submitter       gbrs_paired_asm   paired_asm_comp      ftp_path
+			# 20-21  excluded_from_refseq  relation_to_type_material
             for line in f:
-                refseq2genbank[a] = m
+                refseq2genbank[line[0]] = line[17]
 
 #Load NCBI Taxonomies from GTDB Metadata file
 def loadNCBI(path):
