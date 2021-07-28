@@ -20,8 +20,7 @@ rankDict = {'s':'species','g':'genus','f':'family','o':'order','c':'class','p':'
 depthDict = {'s':7,'g':6,'f':5,'o':4,'c':3,'p':2,'d':1}
 #refseq to genbank
 refseq2genbank = {}
-#asm exists
-asm = False
+
 #Class for each Taxon in the taxonomy tree
 class Taxon():
     def __init__(self, assigned_id, gtdb_id, parent):
@@ -178,12 +177,12 @@ def loadGTDB(path):
 def loadASM(file):
     if(os.path.isfile(file)):
         with open(file, encoding="utf-8") as f:
-            asm = True
             for line in f:
                 if line.startswith('#'):
                     continue
                 if line.startswith('assembly_accession'):
                     continue
+                line = line.strip("\r\n").split("\t")
                 refseq2genbank[line[0]] = line[17]
 
 #Load NCBI Taxonomies from GTDB Metadata file
@@ -285,7 +284,7 @@ def taxid2lineageDEFAULT(taxid):
         ret = taxid2lineage(taxid)
     except:
         try:
-            if asm == True:
+            if len(refseq2genbank > 0):
                 ret = taxid2lineage(refseq2genbank[taxid])
         except:
             try:
