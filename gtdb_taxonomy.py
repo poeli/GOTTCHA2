@@ -90,12 +90,24 @@ def taxid2rank(tid):
 def taxid2name(tid):
     return nodes[nodes[tid].parent].name
 
+#returns taxonomy in the format of a dictionary
 def taxid2lineageDICT(tid):
     return taxid2lineage(tid)
+
+#transform ncbi accession to gtdb accession
+def gtdb_format(tid):
+    ret = None
+    if "GCA" in tid:
+        ret = "GB_" + tid
+    elif "GCF" in tid:
+        ret = "RS_" + tid
+    return ret
+
 #returns taxonomy in the format of a dictionary
 def taxid2lineage(tid):
     ret = {}
-    gtdb_id =  ncbi_tax[tid]
+    #gtdb_id =  ncbi_tax[tid]
+    gtdb_id = gtdb_format(tid)
     node = nodes[gtdb_id]
     parent = node.parent
     taxid = node.id
