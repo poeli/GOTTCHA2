@@ -179,11 +179,11 @@ def loadASM(file):
     if(os.path.isfile(file)):
         with open(file, encoding="utf-8") as f:
             asm = True
-            if line.startswith('#'):
-                continue
-            elif line.startswith('assembly_accession'):
-                continue
             for line in f:
+                if line.startswith('#'):
+                    continue
+                if line.startswith('assembly_accession'):
+                    continue
                 refseq2genbank[line[0]] = line[17]
 
 #Load NCBI Taxonomies from GTDB Metadata file
