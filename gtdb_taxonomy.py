@@ -255,7 +255,7 @@ def loadGTDBMetadata(metadata):
             ncbi_id = '_'.join(line[gtdb_id].split("_")[1:])
             gtdb_tax[line[gtdb_id]] = ncbi_id
             ncbi_tax[ncbi_id] = line[gtdb_id]
-            rep2accession[line[gtdb_id]] = line[acc]
+            rep2accession[line[gtdb_id].split("_")[1:]] = line[acc].split("_")[1:]
 
 
 #load taxonomy file
