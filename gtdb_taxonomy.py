@@ -284,7 +284,7 @@ def taxid2lineageDEFAULT(taxid):
         ret = taxid2lineage(taxid)
     except:
         try:
-            if len(refseq2genbank > 0):
+            if len(refseq2genbank) > 0:
                 ret = taxid2lineage(refseq2genbank[taxid])
         except:
             try:
