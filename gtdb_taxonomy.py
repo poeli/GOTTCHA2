@@ -20,6 +20,8 @@ rankDict = {'s':'species','g':'genus','f':'family','o':'order','c':'class','p':'
 depthDict = {'s':7,'g':6,'f':5,'o':4,'c':3,'p':2,'d':1}
 #refseq to genbank
 refseq2genbank = {}
+#representative to accession
+rep2accession = {}
 
 #Class for each Taxon in the taxonomy tree
 class Taxon():
