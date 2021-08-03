@@ -433,21 +433,21 @@ def group_refs_to_strains(r):
     return str_df
 def expectation(df, row_count):
     for i in range(row_count):
-        df.loc[i,'EXPECTED_READS'] = df['READ_COUNT'][i] * df['EM_ABUNDANCE'][i]
+        df.loc[i,'EXPECTED_READS'] = df['TOTAL_BP_MAPPED'][i] * df['EM_ABUNDANCE'][i]
         sum = 0
         for j in range(row_count):
             if j != i:
-                sum += df['READ_COUNT'][j] * df['EM_ABUNDANCE'][j]
+                sum += df['TOTAL_BP_MAPPED'][j] * df['EM_ABUNDANCE'][j]
         df.loc[i,'EXPECTED_READS'] = df['EXPECTED_READS'][i] / sum
     return df
 
 def maximization(df, row_count):
     for i in range(row_count):
-        df.loc[i,'EM_ABUNDANCE'] = df['EXPECTED_READS'][i] / df['TOL_SIG_LENGTH'][i]
+        df.loc[i,'EM_ABUNDANCE'] = df['EXPECTED_READS'][i] / df['LINEAR_LEN'][i]
         sum = 0
         for j in range(row_count):
             if j != i:
-                sum += (df['EXPECTED_READS'][j] / df['TOL_SIG_LENGTH'][j])
+                sum += (df['EXPECTED_READS'][j] / df['LINEAR_LEN'][j])
         df.loc[i,'EM_ABUNDANCE'] = df['EM_ABUNDANCE'][i] / sum
     return df
 def EM(df):
