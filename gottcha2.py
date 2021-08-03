@@ -443,7 +443,7 @@ def expectation(df, row_count):
 
 def maximization(df, row_count):
     for i in range(row_count):
-        df.loc[i,'EM_ABUNDANCE'] = df['EXPECTED_READS'][i] / df['LINEAR_LEN'][i]
+        df.loc[i,'EM_ABUNDANCE'] = df['EXPECTED_READS'][i] / (df['LINEAR_LEN'][i] * df['TOL_SIG_LENGTH'][i])
         sum = 0
         for j in range(row_count):
             if j != i:
