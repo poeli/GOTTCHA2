@@ -433,11 +433,11 @@ def group_refs_to_strains(r):
     return str_df
 def expectation(df, row_count):
     for i in range(row_count):
-        df.loc[i,'EXPECTED_READS'] = df['TOTAL_BP_MAPPED'][i] * df['EM_ABUNDANCE'][i] /  df['TOL_SIG_LENGTH'][i]
+        df.loc[i,'EXPECTED_READS'] = df['TOTAL_BP_MAPPED'][i] * df['EM_ABUNDANCE'][i]
         sum = 0
         for j in range(row_count):
             if j != i:
-                sum += df['TOTAL_BP_MAPPED'][j] * df['EM_ABUNDANCE'][j] /  df['TOL_SIG_LENGTH'][j]
+                sum += df['TOTAL_BP_MAPPED'][j] * df['EM_ABUNDANCE'][j]
         df.loc[i,'EXPECTED_READS'] = df['EXPECTED_READS'][i] / sum
     return df
 
@@ -628,7 +628,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     """
     input_file = " ".join([x.name for x in reads])
 
-    sr_opts = f"-x {presetx} --second=no -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N1 -n1 -p1 -m24 -s30"
+    sr_opts = f"-x {presetx} --secondary=yes -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N1 -n1 -p1 -m24 -s30"
     if nanopore:
         sr_opts = f"-x {presetx} --second=no -a"
 
