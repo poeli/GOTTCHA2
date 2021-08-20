@@ -35,7 +35,7 @@ from multiprocessing import Pool
 from itertools import chain
 import math
 
-def parse_params( ver ):
+def parse_params( ver, args ):
     p = ap.ArgumentParser( prog='gottcha2.py', description="""Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an
             annotation-independent and signature-based metagenomic taxonomic profiling tool
             that has significantly smaller FDR than other profiling tools. This program
@@ -117,7 +117,7 @@ def parse_params( ver ):
     p.add_argument( '--debug', action="store_true",
                     help="Debug mode. Provide verbose running messages and keep all temporary files.")
 
-    args_parsed = p.parse_args()
+    args_parsed = p.parse_args([args])
 
     """
     Checking options
@@ -621,8 +621,8 @@ def print_message(msg, silent, start, logfile, errorout=0):
     elif not silent:
         sys.stderr.write( message )
 
-if __name__ == '__main__':
-    argvs    = parse_params( __version__ )
+def main(args):
+    argvs    = parse_params( __version__, args )
     begin_t  = time.time()
     sam_fp   = argvs.sam[0] if argvs.sam else ""
     samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
@@ -735,3 +735,6 @@ if __name__ == '__main__':
                 print_message( "%s qualified %s profiled; Results saved to %s." %(tax_num, argvs.dbLevel, outfile), argvs.silent, begin_t, logfile )
         else:
             print_message( "GOTTCHA2 stopped.", argvs.silent, begin_t, logfile )
+
+if __name__ == '__main__':
+    main(sys.argv[1:])
