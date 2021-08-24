@@ -28,7 +28,7 @@ jobs:
       - name: Check Install
         run: |
           conda list
-          python /home/runner/work/GOTTCHA2/setup.py install
+          python GOTTCHA2/setup.py install
           gottcha2 profile --help
           gottcha2 pull --help
 
