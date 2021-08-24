@@ -117,7 +117,7 @@ def parse_params( ver, args ):
     p.add_argument( '--debug', action="store_true",
                     help="Debug mode. Provide verbose running messages and keep all temporary files.")
 
-    args_parsed = p.parse_args([args])
+    args_parsed = p.parse_args(args)
 
     """
     Checking options
