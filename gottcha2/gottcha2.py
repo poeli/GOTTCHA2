@@ -737,4 +737,5 @@ def main(args):
             print_message( "GOTTCHA2 stopped.", argvs.silent, begin_t, logfile )
 
 if __name__ == '__main__':
+    argvs = None
     main(sys.argv[1:])
