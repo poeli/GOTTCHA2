@@ -25,9 +25,9 @@ jobs:
           environment-file: GOTTCHA2/environment.yml
           activate-environment: gottcha
 
-      - name: Check version
+      - name: Check Install
         run: |
-          conda list
+          ls
           python setup.py install
           gottcha2 profile --help
           gottcha2 pull --help
