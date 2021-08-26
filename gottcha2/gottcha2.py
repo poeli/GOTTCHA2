@@ -622,7 +622,8 @@ def print_message(msg, silent, start, logfile, errorout=0):
         sys.stderr.write( message )
 
 def main(args):
-    argvs    = parse_params( __version__, args )
+    global argvs
+    argvs = parse_params( __version__, args )
     begin_t  = time.time()
     sam_fp   = argvs.sam[0] if argvs.sam else ""
     samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
@@ -737,5 +738,4 @@ def main(args):
             print_message( "GOTTCHA2 stopped.", argvs.silent, begin_t, logfile )
 
 if __name__ == '__main__':
-    argvs = None
     main(sys.argv[1:])
