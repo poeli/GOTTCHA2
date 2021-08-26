@@ -624,6 +624,7 @@ def print_message(msg, silent, start, logfile, errorout=0):
 def main(args):
     global argvs
     argvs = parse_params( __version__, args )
+    global begin_t
     begin_t  = time.time()
     sam_fp   = argvs.sam[0] if argvs.sam else ""
     samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
