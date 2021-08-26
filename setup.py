@@ -16,7 +16,7 @@ setup(
     keywords = ['bioinformatics', 'taxonomy', 'profiler'],
     url = "https://github.com/poeli/GOTTCHA2",
     packages=find_packages('GOTTCHA2'),
-    install_requires=['numpy','pandas' ,'requests','tdqm','setuptools', 'minimap2'],
+    install_requires=['numpy','pandas' ,'requests','tdqm','setuptools'],
     long_description=read('README.md'),
     entry_points={'console_scripts': ['gottcha2 = cmd:gottcha2_command',] },
     scripts=['gottcha2/gottcha2.py', 'gottcha2/pull_database.py', 'gottcha2/taxonomy.py', 'gottcha2/cmd.py']
