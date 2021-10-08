@@ -282,7 +282,7 @@ def chunkify(fname, size=1*1024*1024):
             chunkStart = chunkEnd
             f.seek(size, 1)
             f.readline()
-            # put all al read in the same chunck
+            # put all alignments of a read in the same chunck
             line = f.readline().decode('ascii')
             tmp = line.split('\t')
             if chunkEnd <= fileEnd and line:
