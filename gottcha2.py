@@ -550,8 +550,8 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
                     (str_df['ZSCORE'] <= mz)
 
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
-        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: taxid2lineage(x)[rank]['name'])
-        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: xftaxid2lineage(x)[rank]['taxid'])
+        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: taxid2lineage(x, g)[rank]['name'])
+        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: xftaxid2lineage(x, g)[rank]['taxid'])
 
         str_df['LEVEL'] = rank
 
