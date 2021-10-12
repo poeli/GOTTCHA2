@@ -523,7 +523,7 @@ def taxid2lineage(x, g):
     ret = None
     if g != None:
         ret = gd.taxid2lineageDEFAULT(x)
-    if ret == "unknown" or ret = None:
+    if ret == "unknown" or ret == None:
         x = x.split(".")[0]
         ret = gt.taxid2lineageDICT(x)
     print(x)
@@ -551,7 +551,7 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
 
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
         str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: taxid2lineage(x)[rank]['name'])
-        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: taxid2lineage(x)[rank]['taxid'])
+        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: xftaxid2lineage(x)[rank]['taxid'])
 
         str_df['LEVEL'] = rank
 
