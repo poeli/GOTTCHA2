@@ -519,18 +519,18 @@ def EM(df):
     df.drop(columns=['EXPECTED_READS'])
     return df
 
-
-def gtdb_taxid2lineage(x):
-    ret = gd.taxid2lineageDEFAULT(x)
-    print(ret)
-    print(ret == "unknown")
-    if ret == "unknown":
+def taxid2lineage(x, g):
+    ret = None
+    if g != None:
+        ret = gd.taxid2lineageDEFAULT(x)
+    if ret == "unknown" or ret = None:
+        x = x.split(".")[0]
         ret = gt.taxid2lineageDICT(x)
-        print(ret)
+    print(x)
+    print(ret)
     return ret
 
-
-def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
+def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
     """
     Take parsed SAM output and rollup to superkingdoms
     """
@@ -550,16 +550,8 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
                     (str_df['ZSCORE'] <= mz)
 
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
-        if g != None:
-            str_df['LVL_NAME'] = str_df['TAXID'].apply(
-                lambda x: gtdb_taxid2lineage(x)[rank]['name'])
-            str_df['LVL_TAXID'] = str_df['TAXID'].apply(
-                lambda x: gtdb_taxid2lineage(x)[rank]['taxid'])
-        else:
-            str_df['LVL_NAME'] = str_df['TAXID'].apply(
-                lambda x: gt.taxid2lineageDICT(x)[rank]['name'])
-            str_df['LVL_TAXID'] = str_df['TAXID'].apply(
-                lambda x: gt.taxid2lineageDICT(x)[rank]['taxid'])
+        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: taxid2lineage(x)[rank]['name'])
+        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: taxid2lineage(x)[rank]['taxid'])
 
         str_df['LEVEL'] = rank
 
