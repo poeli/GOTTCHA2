@@ -520,9 +520,10 @@ def EM(df):
     return df
 
 def taxid2lineage(x, g):
+    if 'RS_GCF_000319305' in x:
+        print(x)
     ret = None
-    if g != None:
-        ret = gd.taxid2lineageDEFAULT(x)
+    ret = gd.taxid2lineageDEFAULT(x)
     if ret == "unknown" or ret == None:
         x = x.split(".")[0]
         ret = gt.taxid2lineageDICT(x)
