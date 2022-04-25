@@ -22,8 +22,6 @@ depthDict = {'s':7,'g':6,'f':5,'o':4,'c':3,'p':2,'d':1}
 refseq2genbank = {}
 #representative to accession
 rep2accession = {}
-#strains
-strains = {}
 
 #Class for each Taxon in the taxonomy tree
 class Taxon():
@@ -53,20 +51,17 @@ class Taxon():
 
          if (self.rank != "species" and self.rank != "strain"):
              self.name = self.name.split("_")[0]
-         elif (self.rank == "species"):
+         elif (self.name == "species"):
              splitSpecies = self.name.split(" ")
-             self.name = ' '.join([splitSpecies[0].split("_")[0],  splitSpecies[1].split("_")[0]])
+             self.name = ' '.join(splitSpecies[0].split("_")[0],  splitSpecies[1].split("_")[0])
 #Taxonomy tree
 class Graph():
     def __init__(self):
          self.dictionary = {}
          self.count = 1
-    def add_node(self, tid, parent, identifier):
-        if identifier != None:
-            taxon = Taxon(identifier, tid, parent)
-        else:
-            taxon = Taxon(self.count, tid, parent)
-            self.count += 1
+    def add_node(self, tid, parent):
+        taxon = Taxon(self.count, tid, parent)
+        self.count += 1
         if tid not in self.dictionary.keys():
              self.dictionary[tid] = []
         return taxon
@@ -99,8 +94,8 @@ def taxid2rank(tid):
     #return nodes[ncbi_tax[tid]].rank
     if nodes.get(gtdb_format(tid)) != None:
         return nodes[gtdb_format(tid)].rank
-    elif nodes.get(refseq2genbank[tid]) != None:
-        return nodes[refseq2genbank[tid]].rank
+    elif nodes.get(rs_to_gb(tid)) != None:
+        return nodes[rs_to_gb(tid)].rank
     else:
         return t.taxid2rank(tid)
 
@@ -120,6 +115,11 @@ def taxid2name(tid):
 def taxid2lineageDICT(tid):
     return taxid2lineage(tid)
 
+def rs_to_gb(tid):
+    if "GCF" in tid:
+        return tid.replace("GCF", "GCA")
+    return tid
+
 #transform ncbi accession to gtdb accession
 def gtdb_format(tid):
     ret = None
@@ -131,37 +131,31 @@ def gtdb_format(tid):
         ret = "GB_" + tid
     elif "GCF" in tid:
         ret = "RS_" + tid
-    return ret
 
-def strip_id_prefix(tid):
-    if "RS_" in tid or "GB_" in tid:
-        tid = tid[3:]
-    return tid
+    return ret
 
 #returns taxonomy in the format of a dictionary
 def taxid2lineage(tid):
     ret = {}
     #gtdb_id =  ncbi_tax[tid]
-    gtdb_id = gtdb_format(tid)
+    #gtdb_id = gtdb_format(tid)
+    gtdb_id = tid.split(".")[0]
     node = nodes[gtdb_id]
-    parent = None
+    parent = node.parent
+    taxid = node.id
     i = 0
     ret[ranks[i]] = {}
-    try:
-        ret[ranks[i]]['name'] = strains[gtdb_id]
-    except:
-        ret[ranks[i]]['name'] = gtdb_id
-    ret[ranks[i]]['taxid'] = strip_id_prefix(gtdb_id)
-    i += 1
+    ret[ranks[i]]['name'] = taxid
+    ret[ranks[i]]['taxid'] = taxid
     while parent != 'root':
+        i += 1
+        node = nodes[parent]
+        parent = node.parent
         name = node.name
         taxid = node.id
         ret[ranks[i]] = {}
         ret[ranks[i]]['name'] = name
         ret[ranks[i]]['taxid'] = taxid
-        parent = node.parent
-        node = nodes[parent]
-        i += 1
     return ret
 
 def taxid2fullLineage( taxID ):
@@ -193,8 +187,8 @@ def loadGTDB(path):
         url = 'https://data.ace.uq.edu.au/public/gtdb/data/releases/latest/'
         bac_taxonomy = url + 'bac120_taxonomy.tsv'
         bac_metadata = url + 'bac120_metadata.tar.gz'
-        arch_taxonomy = url + 'ar122_taxonomy.tsv'
-        arch_metadata = url + 'ar122_metadata.tar.gz'
+        arch_taxonomy = url + 'ar53_taxonomy.tsv'
+        arch_metadata = url + 'ar53_metadata.tar.gz'
         sys.stderr.write( f"[INFO] Auto downloading taxonomy from {url}...\n" )
         # download taxonomy file if auto_download enabled
         r = requests.get(bac_taxonomy, stream=True)
@@ -202,26 +196,26 @@ def loadGTDB(path):
         r=requests.get(bac_metadata, stream=True)
         open('bac120_metadata.tar.gz', 'wb').write(r.content)
         r=requests.get(arch_taxonomy, stream=True)
-        open('ar122_taxonomy.tsv', 'wb').write(r.content)
+        open('ar53_taxonomy.tsv', 'wb').write(r.content)
         r=requests.get(arch_metadata, stream=True)
-        open('ar122_metadata.tar.gz', 'wb').write(r.content)
+        open('ar53_metadata.tar.gz', 'wb').write(r.content)
         #extract metadatafiles
         tar = tarfile.open('bac120_metadata.tar.gz','r:gz')
         tar.extractall()
         tar.close()
-        os.rename('bac120_metadata_r202.tsv','bac120_metadata.tsv')
-        tar = tarfile.open('ar122_metadata.tar.gz','r:gz')
+        os.rename('bac120_metadata_r207.tsv','bac120_metadata.tsv')
+        tar = tarfile.open('ar53_metadata.tar.gz','r:gz')
         tar.extractall()
         tar.close()
-        os.rename('ar122_metadata_r202.tsv','ar122_metadata.tsv')
+        os.rename('ar53_metadata_r207.tsv','ar53_metadata.tsv')
         path=""
 
 
     loadASM(str(path) + 'assembly_summary.txt')
     loadGTDBMetadata(str(path) + 'bac120_metadata.tsv')
-    loadGTDBMetadata(str(path) + 'ar122_metadata.tsv')
+    loadGTDBMetadata(str(path) + 'ar53_metadata.tsv')
     loadGTDBtaxonomy(str(path) + 'bac120_taxonomy.tsv')
-    loadGTDBtaxonomy(str(path) + 'ar122_taxonomy.tsv')
+    loadGTDBtaxonomy(str(path) + 'ar53_taxonomy.tsv')
     custom_taxa_tsv = path + "gottcha_db_custom"
     gtdb2CustomDB(custom_taxa_tsv + ".tax.tsv")
     t.loadTaxonomy(cus_taxonomy_file = custom_taxa_tsv )
@@ -254,7 +248,7 @@ def loadNCBI(path):
 def loadNCBITaxonomy(metadata):
     if not os.path.isfile(metadata):
         raise Exception(metadata + "File Not Found")
-    graph_ncbi.add_node('root', None, None)
+    graph_ncbi.add_node('root', None)
     with open(metadata, encoding="utf-8") as f:
         header = f.readline().rstrip('\r\n').split('\t')
         #gtdb_id = header.index("gtdb_genome_representative")
@@ -267,7 +261,8 @@ def loadNCBITaxonomy(metadata):
             tax.append(line[gtdb_id])
             parent = 'root'
             for i,c in enumerate(tax):
-                taxon = graph_ncbi.add_node(c,parent, None)
+                print(c)
+                taxon = graph_ncbi.add_node(c,parent)
                 parent = c
                 nodes_ncbi[c] = taxon
                 if i == 0:
@@ -301,7 +296,6 @@ def loadGTDBMetadata(metadata):
         gtdb_id = header.index("gtdb_genome_representative")
         #gtdb_id = header.index("accession")
         tax = header.index("ncbi_taxid")
-        str = header.index("ncbi_organism_name")
         spec_tax = header.index("ncbi_species_taxid")
         acc = header.index("accession")
         for line in f:
@@ -309,7 +303,6 @@ def loadGTDBMetadata(metadata):
             ncbi_id = '_'.join(line[gtdb_id].split("_")[1:])
             gtdb_tax[line[gtdb_id]] = ncbi_id
             ncbi_tax[ncbi_id] = line[gtdb_id]
-            strains[line[gtdb_id]] = line[str]
             rep2accession[line[gtdb_id][3:]] = line[acc][3:]
 
 
@@ -317,23 +310,24 @@ def loadGTDBMetadata(metadata):
 def loadGTDBtaxonomy(taxonomy):
     if not os.path.isfile(taxonomy):
         raise Exception(taxonomy + "File Not Found")
-    graph.add_node('root', None, None)
+    graph.add_node('root', None)
     nodes['root'] = None
     with open(taxonomy, encoding="utf-8") as f:
         for line in f:
             line = line.rstrip('\r\n')
             gtdb_id, taxa = line.split('\t',1)
             tax = taxa.split(';')
-            #tax.append(gtdb_id)
+            gtdb_id = gtdb_id[3:].split(".")[0]
+            tax.append(gtdb_id)
             parent = 'root'
             for i,c in enumerate(tax):
-                if i == 6:
-                     taxon = graph.add_node(c, parent, strip_id_prefix(gtdb_id))
-                     nodes[gtdb_id] = taxon
-                else:
-                    taxon = graph.add_node(c, parent, None)
+                taxon = graph.add_node(c, parent)
                 parent = c
                 nodes[c] = taxon
+                if i == 0:
+                     graph.add_edge('root', c)
+                else:
+                     graph.add_edge(tax[i-1], c)
             if not line:
                 continue
 
@@ -343,8 +337,7 @@ def taxid2lineageDEFAULT(taxid):
         ret = taxid2lineage(taxid)
     except:
         try:
-            if len(refseq2genbank) > 0:
-                ret = taxid2lineage(refseq2genbank[taxid])
+            ret = taxid2lineage(rs_to_gb(taxid))
         except:
             try:
                 ret = t.taxid2lineageDICT(taxid)
@@ -358,4 +351,3 @@ def taxid2lineageDEFAULT(taxid):
 if __name__ == '__main__':
     loadGTDB(sys.argv[1] if len(sys.argv)>1 else None)
     loadNCBI(sys.argv[1] if len(sys.argv)>1 else None)
-
