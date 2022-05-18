@@ -59,8 +59,11 @@ def parse_params(ver):
     p.add_argument('-d', '--database', metavar='[MINIMAP2_INDEX]', type=str, default=None,
                    help="The path of signature database. The database can be in FASTA format or minimap2 index (5 files).")
 
-    p.add_argument('-g', '--gtdb', metavar='[GTDB_PATH]', type=str, default=None,
-                   help="The path of the gtdb metadata and taxonomy files.")
+    p.add_argument('-g', '--gtdb', nargs='?', type=str, const='', 
+                    help="The path o fthe gtdb metadata and taxonommy files.")
+
+    #p.add_argument('-g', '--gtdb', metavar='[GTDB_PATH]', type=str, default=None,
+     #              help="The path of the gtdb metadata and taxonomy files.")
 
     p.add_argument('-l', '--dbLevel', metavar='[LEVEL]', type=str, default='',
                    choices=['superkingdom', 'phylum', 'class',
@@ -520,13 +523,11 @@ def EM(df):
     return df
 
 def taxid2lineage(x, g):
-    if 'RS_GCF_000319305' in x:
-        print(x)
     ret = None
-    ret = gd.taxid2lineageDEFAULT(x)
+    if g:
+        ret = gd.taxid2lineageDEFAULT(x)
     if ret == "unknown" or ret == None:
-        x = x.split(".")[0]
-        ret = gt.taxid2lineageDICT(x)
+        ret = gt.taxid2lineageDICT(x.split(".")[0])
     print(x)
     print(ret)
     return ret
@@ -549,7 +550,7 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
                     (str_df['READ_COUNT'] >= mr) & \
                     (str_df['LINEAR_LEN'] >= ml) & \
                     (str_df['ZSCORE'] <= mz)
-
+    g = True
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
         str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: taxid2lineage(x, g)[rank]['name'])
         str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: taxid2lineage(x, g)[rank]['taxid'])
@@ -574,7 +575,7 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz, g):
         lvl_df['REL_ABUNDANCE'] = lvl_df[abu_col]/tol_abu
 
         # computer relative abundance via EM
-        lvl_df = EM(lvl_df)
+        #lvl_df = EM(lvl_df)
 
         # add NOTE if ranks is higher than target rank
         lvl_df['NOTE'] = ""
@@ -631,7 +632,7 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
             'TOTAL_BP_MISMATCH', 'LINEAR_LEN', 'LINEAR_DOC', 'ROLLUP_DOC', 'REL_ABUNDANCE',
-            'REL_EM_ABUNDANCE',
+            #'REL_EM_ABUNDANCE',
             'LINEAR_COV', 'LINEAR_COV_MAPPED_SIG', 'BEST_LINEAR_COV', 'MAPPED_SIG_LENGTH', 'TOL_SIG_LENGTH',
             'ABUNDANCE', 'ZSCORE', 'NOTE']
 
@@ -802,8 +803,8 @@ if __name__ == '__main__':
                   __version__, argvs.silent, begin_t, logfile)
     print_message("Arguments and dependencies checked:",
                   argvs.silent, begin_t, logfile)
-    print_message("    Input reads      : %s" % [
-                  x.name for x in argvs.input],     argvs.silent, begin_t, logfile)
+    #print_message("    Input reads      : %s" % [
+     #             x.name for x in argvs.input],     argvs.silent, begin_t, logfile)
     print_message("    Input SAM file   : %s" %
                   samfile,         argvs.silent, begin_t, logfile)
     print_message("    Database         : %s" %
@@ -832,7 +833,10 @@ if __name__ == '__main__':
     # load taxonomy
     print_message("Loading taxonomy information...",
                   argvs.silent, begin_t, logfile)
-    gd.loadGTDB(argvs.gtdb)
+    if argvs.gtdb == "":
+        gd.loadGTDB(None)
+    else:
+        gd.loadGTDB(argvs.gtdb)
     custom_taxa_tsv = None
     if os.path.isfile(argvs.database + ".tax.tsv"):
         custom_taxa_tsv = argvs.database+".tax.tsv"

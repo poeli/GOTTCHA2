@@ -51,9 +51,9 @@ class Taxon():
 
          if (self.rank != "species" and self.rank != "strain"):
              self.name = self.name.split("_")[0]
-         elif (self.name == "species"):
+         elif (self.rank == "species"):
              splitSpecies = self.name.split(" ")
-             self.name = ' '.join(splitSpecies[0].split("_")[0],  splitSpecies[1].split("_")[0])
+             self.name = ' '.join([splitSpecies[0].split("_")[0],  splitSpecies[1].split("_")[0]])
 #Taxonomy tree
 class Graph():
     def __init__(self):
