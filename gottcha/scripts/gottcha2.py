@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
-__credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.7"
+__credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
+__version__   = "2.1.8"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -235,7 +235,7 @@ def parse(line):
     temp = line.split('\t')
     name = temp[0]
     match_len    = search(r'(\d+)M', temp[5])
-    mismatch_len = search(r'NM:i:(\d+)', temp[11])
+    mismatch_len = search(r'NM:i:(\d+)', line)
     start = int(temp[3])
     end   = start + int(match_len.group(1)) - 1
 
