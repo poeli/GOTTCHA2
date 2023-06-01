@@ -566,9 +566,9 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     """
     input_file = " ".join([x.name for x in reads])
 
-    sr_opts = f"-x {presetx} --second=no -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N1 -n1 -p1 -m24 -s30"
+    sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N0 -n1 -p1 -m24 -s30"
     if nanopore:
-        sr_opts = f"-x {presetx} --second=no -a"
+        sr_opts = f"-x {presetx} -N0 -a"
 
     bash_cmd   = "set -o pipefail; set -x;"
     mm2_cmd    = f"minimap2 {sr_opts} -t{threads} {db}.mmi {input_file}"
