@@ -2,23 +2,24 @@
 
 from setuptools import setup, find_packages
 import os, subprocess, sys
+from gottcha import __version__ as version
 
-def read(fname):
-    return open(os.path.join(os.path.dirname(__file__), fname)).read()
+with open('README.md', 'r') as fh:
+    long_description = fh.read()
 
 setup(
     name = "GOTTCHA2",
-    version = "2.1.4",
+    version = version,
     author = "Po-E Li",
-    author_email = "poeli@lanl.gov",
-    description = ("Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) v2 "),
+    author_email = "po-e@lanl.gov",
+    description = ("Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) v2"),
     license = "BSD-3-Clause",
     keywords = ['bioinformatics', 'taxonomy', 'profiler'],
     url = "https://github.com/poeli/GOTTCHA2",
     packages=['gottcha'],
     package_dir={'GOTTCHA2': './'},
     install_requires=['numpy','pandas' ,'requests','tdqm','setuptools'],
-    long_description=read('README.md'),
+    long_description=long_description,
     entry_points={'console_scripts': ['gottcha2 = cmd:gottcha2_command',] },
     scripts=['gottcha/scripts/gottcha2.py', 'gottcha/scripts/pull_database.py', 'gottcha/scripts/taxonomy.py', 'gottcha/scripts/cmd.py']
 )
