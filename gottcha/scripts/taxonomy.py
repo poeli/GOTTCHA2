@@ -656,9 +656,7 @@ def _checkTaxonomy(taxID="", acc=""):
 
 if __name__ == '__main__':
 	#loading taxonomy
-	loadTaxonomy(dbpath=sys.argv[1] if len(sys.argv)>1 else None, 
-	             cus_taxonomy_file=sys.argv[2] if len(sys.argv)>2 else None, 
-	             debug=True)
+	loadTaxonomy( sys.argv[1] if len(sys.argv)>1 else None, debug=True)
 
 	inid = 0
 	try:
