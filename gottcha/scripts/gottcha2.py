@@ -34,6 +34,7 @@ from re import compile as recompile
 from multiprocessing import Pool
 from itertools import chain
 import math
+import logging
 
 def parse_params( ver, args ):
     p = ap.ArgumentParser( prog='gottcha2.py', description="""Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an
@@ -633,6 +634,13 @@ def main(args):
     logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
     lines_per_process = 10000
 
+    if argvs.debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s [%(levelname)s] %(module)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M',
+        )
+
     #dependency check
     if sys.version_info < (3,4):
         sys.exit("[ERROR] Python 3.4 or above is required.")
@@ -668,7 +676,8 @@ def main(args):
 
     print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
     print_message( "Arguments and dependencies checked:", argvs.silent, begin_t, logfile )
-    print_message( "    Input reads      : %s" % [x.name for x in argvs.input],     argvs.silent, begin_t, logfile )
+    if argvs.input:
+        print_message( "    Input reads      : %s" % [x.name for x in argvs.input],     argvs.silent, begin_t, logfile )
     print_message( "    Input SAM file   : %s" % samfile,         argvs.silent, begin_t, logfile )
     print_message( "    Database         : %s" % argvs.database,  argvs.silent, begin_t, logfile )
     print_message( "    Database level   : %s" % argvs.dbLevel,   argvs.silent, begin_t, logfile )
