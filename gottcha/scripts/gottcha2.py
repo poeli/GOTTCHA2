@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.3"
+__version__   = "2.1.8.4"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -58,7 +58,7 @@ def parse_params( ver, args ):
                     help="""Specify the taxonomic level of the input database. You can choose one rank from "superkingdom", "phylum", "class", "order", "family", "genus", "species" and "strain". The value will be auto-detected if the input database ended with levels (e.g. GOTTCHA_db.species).""")
 
     p.add_argument( '-ti','--taxInfo', metavar='[FILE]', type=str, default='',
-                    help="""Specify the path of taxonomy information file (taxonomy.tsv). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
+                    help="""Specify the path of taxonomy information directory (taxonomy_db). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
 
     p.add_argument( '-np','--nanopore', action="store_true",
                     help="Adjust options for Nanopore reads. The 'mismatch' option will be ignored. [-xm map-ont -mr 1]")
@@ -148,7 +148,7 @@ def parse_params( ver, args ):
     if not args_parsed.taxInfo:
         if args_parsed.database:
             db_dir = search(r'^(.*?)[^\/]+$', args_parsed.database )
-            args_parsed.taxInfo = db_dir.group(1)
+            args_parsed.taxInfo = db_dir.group(1) + "/taxonomy_db"
         else:
             bin_dir = os.path.dirname(os.path.realpath(__file__))
             args_parsed.taxInfo = bin_dir + "/database"
