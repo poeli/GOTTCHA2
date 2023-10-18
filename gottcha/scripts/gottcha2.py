@@ -125,7 +125,7 @@ def parse_params( ver, args ):
     """
     if args_parsed.version:
         print( ver )
-        os._exit(0)
+        sys.exit(0)
 
     if not args_parsed.database:
         p.error( '--database option is missing.' )
