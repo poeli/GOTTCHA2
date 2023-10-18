@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.4"
+__version__   = "2.1.8.5"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -583,32 +583,33 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     return exitcode, mm2_cmd, errs
 
 def loadDatabaseStats(db_stats_file):
-	"""
-	loading database stats from db_path.stats
+    """
+    loading database stats from db_path.stats
 
-	The input stats file is a 8 column tab delimited text file:
-	1. Rank
-	2. Name
-	3. Taxid
-	4. Superkingdom
-	5. NumOfSeq
-	6. Max
-	7. Min
-	8. TotalLength
+    The input stats file is a 8 column tab delimited text file:
+    1. Rank
+    2. Name
+    3. Taxid
+    4. Superkingdom
+    5. NumOfSeq
+    6. Max
+    7. Min
+    8. TotalLength
 
-	We will only save stain level info with their taxid (2) and total signature length (8).
-	"""
-	db_stats = {}
+    We will only save stain level info with their taxid (2) and total signature length (8).
+    """
+    db_stats = {}
 
-	with open(db_stats_file) as f:
-		for line in f:
-			fields = line.split("\t")
-			if fields[0] == "strain": #or fields[0] == "species":
-				db_stats[fields[2]] = int(fields[7])
-			else:
-				continue
+    with open(db_stats_file) as f:
+        for line in f:
+            fields = line.split("\t")
+            major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7, "strain":8}
+            if fields[0] in major_ranks:
+                db_stats[fields[2]] = int(fields[7])
+            else:
+                continue
 
-	return db_stats
+    return db_stats
 
 def print_message(msg, silent, start, logfile, errorout=0):
     message = "[%s] %s\n" % (time_spend(start), msg)

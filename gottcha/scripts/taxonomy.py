@@ -3,15 +3,18 @@
 # Po-E (Paul) Li
 # B-11, Los Alamos National Lab
 # Date: 05/15/2016
-# Latest Update: 08/31/2023
 
 import sys
 import os
 import tarfile
 import requests
 import logging
-__version__ = "0.5.12"
 from typing import Union, Optional
+
+try:
+    from . import __version__
+except:
+    __version__ = 'standalone'
 
 logger = logging.getLogger()
 
@@ -51,7 +54,7 @@ df_names = None
 def _getTaxDepth(tid: str) -> str:
     """Get the depth of a taxonomy ID [warning: only support Kraken taxa inputs]"""
     if tid in taxMerged: tid = taxMerged[tid]
-    return taxDepths[tid]
+    return int(taxDepths[tid])
 
 def _getTaxName(tid: str) -> str:
     """Get the name of a taxonomy ID"""
@@ -118,16 +121,21 @@ def _taxid2fullLink(tid: Union[int, str]) -> dict:
     return link
 
 
-def _taxid2lineage(tid: Union[int, str], all_major_rank: bool=True, print_strain: bool=True, 
-                   space2underscore: bool=False, guess_type: bool=False):
+def _taxid2lineage(tid: Union[int, str], 
+                   all_major_rank: bool=True, 
+                   print_strain: bool=True, 
+                   space2underscore: bool=False, 
+                   guess_type: bool=False):
     """
     Given a taxonomic ID, returns the lineage of the taxon as a dictionary.
     The lineage is represented as a dictionary where the keys are the taxonomic ranks and the values are the corresponding taxon names.
     If the taxon is not found in the nodes dictionary, an empty dictionary is returned.
     """
-
+    tid_orig = tid
     tid = _checkTaxonomy( tid )
-    if tid == "unknown": return {}
+    if tid == "unknown": 
+        logger.debug( f"Unknown taxid: {tid_orig}" )
+        return {}
     # if tid in tidLineageDict: return tidLineageDict[tid]
 
     info = _autoVivification()
@@ -204,11 +212,26 @@ def _loadAbbrJson(abbr_json_path: str) -> None:
     import json
     global major_level_to_abbr, abbr_to_major_level
 
-    # Opening JSON file
-    with open(abbr_json_path) as f:    
-        major_level_to_abbr = json.load(f)
-        f.close
+    logging.debug(f'Loading major level to abbr from {abbr_json_path}...')
 
+    if os.path.isfile(abbr_json_path):
+        # Opening JSON file
+        with open(abbr_json_path) as f:    
+            major_level_to_abbr = json.load(f)
+            f.close
+    else:
+        major_level_to_abbr = {
+            "superkingdom" : "sk",
+            "phylum"       : "p",
+            "class"        : "c",
+            "order"        : "o",
+            "family"       : "f",
+            "genus"        : "g",
+            "species"      : "s",
+            "strain"       : "n"
+        }
+        logger.info( f"None of the abbreviations for major ranks loaded from a JSON file. Default abbreviations use." )
+        
     if len(major_level_to_abbr):
         abbr_to_major_level = {v: k for k, v in major_level_to_abbr.items()}
     else:
@@ -817,9 +840,10 @@ def loadTaxonomy(dbpath: Optional[str] = None,
     if dbpath:
         if os.path.isdir(dbpath):
             taxonomy_dir = dbpath
-            abbr_json_path = f"{taxonomy_dir}/major_level_to_abbr.json"
+            if os.path.isfile( f"{taxonomy_dir}/major_level_to_abbr.json" ):
+                abbr_json_path = f"{taxonomy_dir}/major_level_to_abbr.json"
         else:
-            logger.warning( f"invalid parameter: {dbpath} is not a directory. Default dbpath will be used." )
+            logger.info( f"Invalid dbpath: {dbpath} is not a directory. Default dbpath will be used." )
 
     logger.debug( f"Taxonomy directory: {taxonomy_dir}" )
 
@@ -960,7 +984,7 @@ def loadTaxonomyTSV(tsv_taxonomy_file):
                 if not line: continue
                 tid, depth, parent, rank, name = line.split('\t')
                 taxParents[tid] = parent
-                taxDepths[tid] = depth
+                taxDepths[tid] = int(depth)
                 taxRanks[tid] = rank
                 taxNames[tid] = name
                 if parent in taxNumChilds:
@@ -1002,7 +1026,7 @@ def loadNCBITaxonomy(taxdump_tgz_file: Optional[str] = None,
                     tid = fields[0]
                     parent = fields[1]
                     taxParents[tid] = parent
-                    taxDepths[tid] = taxDepths[parent]+1 if parent in taxDepths else 0 # could have potiential bug if child node is parsed before parent node.
+                    taxDepths[tid] = int(taxDepths[parent])+1 if parent in taxDepths else 0 # could have potiential bug if child node is parsed before parent node.
                     taxRanks[tid] = fields[2]
                     if parent in taxNumChilds:
                         taxNumChilds[parent] += 1
@@ -1037,7 +1061,7 @@ def loadNCBITaxonomy(taxdump_tgz_file: Optional[str] = None,
                 tid = fields[0]
                 parent = fields[1]
                 taxParents[tid] = parent
-                taxDepths[tid] = taxDepths[parent]+1 if parent in taxDepths else 0 # could have potiential bug if child node is parsed before parent node.
+                taxDepths[tid] = int(taxDepths[parent])+1 if parent in taxDepths else 0 # could have potiential bug if child node is parsed before parent node.
                 taxRanks[tid] = fields[2]
                 if parent in taxNumChilds:
                     taxNumChilds[parent] += 1
