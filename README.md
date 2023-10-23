@@ -32,15 +32,15 @@ GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to si
 
 2. Download the latest version of the GOTTCHA2 database. (This step may take some time)
 
-        https://ref-db.edgebioinformatics.org/gottcha2/
+        https://ref-db.edgebioinformatics.org/gottcha2/RefSeq-r220/
 
 3. Run GOTTCHA2:
         
-        $ gottcha2.py -d database/RefSeq-r90.cg.BacteriaArchaeaViruses.species.fna -t 8 -i <FASTQ>
+        $ gottcha2.py -d RefSeq-r220_BAVxH-cg/gottcha_db.species.fna -t 8 -i <FASTQ>
         
         OR
         
-        $ gottcha2 profile -d database/RefSeq-r90.cg.BacteriaArchaeaViruses.species.fna -t 8 -i <FASTQ>
+        $ gottcha2 profile -d RefSeq-r220_BAVxH-cg/gottcha_db.species.fna -t 8 -i <FASTQ>
 
 -------------------------------------------------------------------
 ## RESULT

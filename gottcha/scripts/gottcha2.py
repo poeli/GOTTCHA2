@@ -150,9 +150,13 @@ def parse_params( ver, args ):
         if args_parsed.database:
             db_dir = search(r'^(.*?)[^\/]+$', args_parsed.database )
             args_parsed.taxInfo = db_dir.group(1) + "/taxonomy_db"
-        else:
-            bin_dir = os.path.dirname(os.path.realpath(__file__))
-            args_parsed.taxInfo = bin_dir + "/database"
+
+            if not os.path.isdir(args_parsed.taxInfo):
+                bin_dir = os.path.dirname(os.path.realpath(__file__))
+                args_parsed.taxInfo = bin_dir + "/database"
+                
+            if not os.path.isdir(args_parsed.taxInfo):
+                args_parsed.taxInfo = db_dir.group(1)
 
     if not args_parsed.prefix:
         if args_parsed.input:
