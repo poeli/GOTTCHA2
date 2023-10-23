@@ -36,6 +36,8 @@ from itertools import chain
 import math
 import logging
 
+logger = logging.getLogger()
+
 def parse_params( ver, args ):
     p = ap.ArgumentParser( prog='gottcha2.py', description="""Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an
             annotation-independent and signature-based metagenomic taxonomic profiling tool
@@ -154,7 +156,7 @@ def parse_params( ver, args ):
             if not os.path.isdir(args_parsed.taxInfo):
                 bin_dir = os.path.dirname(os.path.realpath(__file__))
                 args_parsed.taxInfo = bin_dir + "/database"
-                
+
             if not os.path.isdir(args_parsed.taxInfo):
                 args_parsed.taxInfo = db_dir.group(1)
 
@@ -404,11 +406,11 @@ def group_refs_to_strains(r):
 
     # group by strain
     str_df = r_df.groupby(['TAXID']).agg({
-        'MB':sum, # of mapped bases
-        'MR':sum, # of mapped reads
-        'NM':sum, # of mismatches
-        'LL':sum, # linear length
-        'RLEN':sum # length of this signature fragments (mapped)
+        'MB':'sum', # of mapped bases
+        'MR':'sum', # of mapped reads
+        'NM':'sum', # of mismatches
+        'LL':'sum', # linear length
+        'RLEN':'sum' # length of this signature fragments (mapped)
     }).reset_index()
     # total length of signatures
     str_df['TS'] = str_df['TAXID'].apply(lambda x: db_stats[x])
@@ -433,7 +435,7 @@ def group_refs_to_strains(r):
 
     return str_df
 
-def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
+def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
     """
     Take parsed SAM output and rollup to superkingdoms
     """
@@ -455,6 +457,8 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
         str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
         str_df['LEVEL'] = rank
 
+        logger.debug( str_df )
+
         # rollup strains that make cutoffs
         lvl_df = pd.DataFrame()
         if rank == 'strain':
@@ -463,9 +467,9 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
             lvl_df = str_df[qualified_idx].groupby(['LVL_NAME']).agg({
                 'LEVEL':'first',
                 'LVL_TAXID':'first',
-                'TOTAL_BP_MAPPED': sum, 'READ_COUNT': sum, 'TOTAL_BP_MISMATCH': sum,
-                'LINEAR_LEN': sum, 'MAPPED_SIG_LENGTH': sum, 'TOL_SIG_LENGTH': sum,
-                'ROLLUP_DOC': sum, 'BEST_DOC': max, 'BEST_LINEAR_COV': max, 'ZSCORE': min,
+                'TOTAL_BP_MAPPED': 'sum', 'READ_COUNT': 'sum', 'TOTAL_BP_MISMATCH': 'sum',
+                'LINEAR_LEN': 'sum', 'MAPPED_SIG_LENGTH': 'sum', 'TOL_SIG_LENGTH': 'sum',
+                'ROLLUP_DOC': 'sum', 'BEST_DOC': 'max', 'BEST_LINEAR_COV': 'max', 'ZSCORE': 'min',
             }).reset_index().copy()
 
         lvl_df['ABUNDANCE'] = lvl_df[abu_col]
@@ -645,6 +649,7 @@ def main(args):
             format='%(asctime)s [%(levelname)s] %(module)s: %(message)s',
             datefmt='%Y-%m-%d %H:%M',
         )
+        logger = logging.getLogger()
 
     #dependency check
     if sys.version_info < (3,4):

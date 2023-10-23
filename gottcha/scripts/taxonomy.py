@@ -7,7 +7,6 @@
 import sys
 import os
 import tarfile
-import requests
 import logging
 from typing import Union, Optional
 
@@ -141,11 +140,13 @@ def _taxid2lineage(tid: Union[int, str],
     info = _autoVivification()
     level = {abbr: '' for abbr in abbr_to_major_level}
 
-    rank = _getTaxRank(tid)
+    rank = taxid2rank(tid)
     orig_rank = rank
-    name = _getTaxName(tid)
+    name = taxid2name(tid)
     str_name = name
     if space2underscore: str_name = str_name.replace(" ", "_")
+
+    logger.debug( f"orig_rank: {orig_rank}, str_name: {str_name}" )
 
     while tid:
         if rank in major_level_to_abbr:
@@ -400,7 +401,7 @@ def name2taxid(name, rank=None, superkingdom=None, fuzzy=True, cutoff=0.7, max_m
 
     if df_names is None and expand and os.path.isfile( names_dmp_file ):
         df_names = pd.read_csv(names_dmp_file, 
-                         sep='\t\|\t', 
+                         sep='\t|\t', 
                          engine='python', 
                          header=None, 
                          names=['taxid', 'name', 'annot', 'type'], 
@@ -657,7 +658,7 @@ def lca_taxid(taxids: list) -> str:
 
     merged_dict = _autoVivification()
     for tid in taxids:
-        lineage = taxid2lineageDICT(tid, 1, 1)
+        lineage = taxid2lineageDICT(tid)
         for r in ranks:
             if not r in lineage:
                 ttid = "0"
@@ -907,6 +908,7 @@ def loadTaxonomy(dbpath: Optional[str] = None,
         _die(f"[ERROR] Invalid cus_taxonomy_format: {cus_taxonomy_format}")
 
 def NCBITaxonomyDownload(dir=None, taxdump=True, acc_wgs=False, acc_nucl=False, acc_prot=False, acc_pdb=False, acc_dead=True):
+    import requests
     global taxonomy_dir
 
     if not dir:
