@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
-__credits__   = ["Po-E Li", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.7"
+__credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
+__version__   = "2.1.8.5"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -34,6 +34,9 @@ from re import compile as recompile
 from multiprocessing import Pool
 from itertools import chain
 import math
+import logging
+
+logger = logging.getLogger()
 
 def parse_params( ver, args ):
     p = ap.ArgumentParser( prog='gottcha2.py', description="""Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an
@@ -58,7 +61,7 @@ def parse_params( ver, args ):
                     help="""Specify the taxonomic level of the input database. You can choose one rank from "superkingdom", "phylum", "class", "order", "family", "genus", "species" and "strain". The value will be auto-detected if the input database ended with levels (e.g. GOTTCHA_db.species).""")
 
     p.add_argument( '-ti','--taxInfo', metavar='[FILE]', type=str, default='',
-                    help="""Specify the path of taxonomy information file (taxonomy.tsv). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
+                    help="""Specify the path of taxonomy information directory (taxonomy_db). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
 
     p.add_argument( '-np','--nanopore', action="store_true",
                     help="Adjust options for Nanopore reads. The 'mismatch' option will be ignored. [-xm map-ont -mr 1]")
@@ -124,7 +127,7 @@ def parse_params( ver, args ):
     """
     if args_parsed.version:
         print( ver )
-        os._exit(0)
+        sys.exit(0)
 
     if not args_parsed.database:
         p.error( '--database option is missing.' )
@@ -148,10 +151,14 @@ def parse_params( ver, args ):
     if not args_parsed.taxInfo:
         if args_parsed.database:
             db_dir = search(r'^(.*?)[^\/]+$', args_parsed.database )
-            args_parsed.taxInfo = db_dir.group(1)
-        else:
-            bin_dir = os.path.dirname(os.path.realpath(__file__))
-            args_parsed.taxInfo = bin_dir + "/database"
+            args_parsed.taxInfo = db_dir.group(1) + "/taxonomy_db"
+
+            if not os.path.isdir(args_parsed.taxInfo):
+                bin_dir = os.path.dirname(os.path.realpath(__file__))
+                args_parsed.taxInfo = bin_dir + "/database"
+
+            if not os.path.isdir(args_parsed.taxInfo):
+                args_parsed.taxInfo = db_dir.group(1)
 
     if not args_parsed.prefix:
         if args_parsed.input:
@@ -235,7 +242,7 @@ def parse(line):
     temp = line.split('\t')
     name = temp[0]
     match_len    = search(r'(\d+)M', temp[5])
-    mismatch_len = search(r'NM:i:(\d+)', temp[11])
+    mismatch_len = search(r'NM:i:(\d+)', line)
     start = int(temp[3])
     end   = start + int(match_len.group(1)) - 1
 
@@ -399,11 +406,11 @@ def group_refs_to_strains(r):
 
     # group by strain
     str_df = r_df.groupby(['TAXID']).agg({
-        'MB':sum, # of mapped bases
-        'MR':sum, # of mapped reads
-        'NM':sum, # of mismatches
-        'LL':sum, # linear length
-        'RLEN':sum # length of this signature fragments (mapped)
+        'MB':'sum', # of mapped bases
+        'MR':'sum', # of mapped reads
+        'NM':'sum', # of mismatches
+        'LL':'sum', # linear length
+        'RLEN':'sum' # length of this signature fragments (mapped)
     }).reset_index()
     # total length of signatures
     str_df['TS'] = str_df['TAXID'].apply(lambda x: db_stats[x])
@@ -428,7 +435,7 @@ def group_refs_to_strains(r):
 
     return str_df
 
-def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
+def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
     """
     Take parsed SAM output and rollup to superkingdoms
     """
@@ -450,6 +457,8 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
         str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
         str_df['LEVEL'] = rank
 
+        logger.debug( str_df )
+
         # rollup strains that make cutoffs
         lvl_df = pd.DataFrame()
         if rank == 'strain':
@@ -458,9 +467,9 @@ def roll_up_taxonomy( r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
             lvl_df = str_df[qualified_idx].groupby(['LVL_NAME']).agg({
                 'LEVEL':'first',
                 'LVL_TAXID':'first',
-                'TOTAL_BP_MAPPED': sum, 'READ_COUNT': sum, 'TOTAL_BP_MISMATCH': sum,
-                'LINEAR_LEN': sum, 'MAPPED_SIG_LENGTH': sum, 'TOL_SIG_LENGTH': sum,
-                'ROLLUP_DOC': sum, 'BEST_DOC': max, 'BEST_LINEAR_COV': max, 'ZSCORE': min,
+                'TOTAL_BP_MAPPED': 'sum', 'READ_COUNT': 'sum', 'TOTAL_BP_MISMATCH': 'sum',
+                'LINEAR_LEN': 'sum', 'MAPPED_SIG_LENGTH': 'sum', 'TOL_SIG_LENGTH': 'sum',
+                'ROLLUP_DOC': 'sum', 'BEST_DOC': 'max', 'BEST_LINEAR_COV': 'max', 'ZSCORE': 'min',
             }).reset_index().copy()
 
         lvl_df['ABUNDANCE'] = lvl_df[abu_col]
@@ -566,9 +575,9 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     """
     input_file = " ".join([x.name for x in reads])
 
-    sr_opts = f"-x {presetx} --second=no -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N1 -n1 -p1 -m24 -s30"
+    sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no -n1 -p1 -m24 -s30"
     if nanopore:
-        sr_opts = f"-x {presetx} --second=no -a"
+        sr_opts = f"-x {presetx} -N20 --secondary=no -a"
 
     bash_cmd   = "set -o pipefail; set -x;"
     mm2_cmd    = f"minimap2 {sr_opts} -t{threads} {db}.mmi {input_file}"
@@ -582,32 +591,33 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     return exitcode, mm2_cmd, errs
 
 def loadDatabaseStats(db_stats_file):
-	"""
-	loading database stats from db_path.stats
+    """
+    loading database stats from db_path.stats
 
-	The input stats file is a 8 column tab delimited text file:
-	1. Rank
-	2. Name
-	3. Taxid
-	4. Superkingdom
-	5. NumOfSeq
-	6. Max
-	7. Min
-	8. TotalLength
+    The input stats file is a 8 column tab delimited text file:
+    1. Rank
+    2. Name
+    3. Taxid
+    4. Superkingdom
+    5. NumOfSeq
+    6. Max
+    7. Min
+    8. TotalLength
 
-	We will only save stain level info with their taxid (2) and total signature length (8).
-	"""
-	db_stats = {}
+    We will only save stain level info with their taxid (2) and total signature length (8).
+    """
+    db_stats = {}
 
-	with open(db_stats_file) as f:
-		for line in f:
-			fields = line.split("\t")
-			if fields[0] == "strain": #or fields[0] == "species":
-				db_stats[fields[2]] = int(fields[7])
-			else:
-				continue
+    with open(db_stats_file) as f:
+        for line in f:
+            fields = line.split("\t")
+            major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7, "strain":8}
+            if fields[0] in major_ranks:
+                db_stats[fields[2]] = int(fields[7])
+            else:
+                continue
 
-	return db_stats
+    return db_stats
 
 def print_message(msg, silent, start, logfile, errorout=0):
     message = "[%s] %s\n" % (time_spend(start), msg)
@@ -632,6 +642,14 @@ def main(args):
     samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
     logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
     lines_per_process = 10000
+
+    if argvs.debug:
+        logging.basicConfig(
+            level=logging.DEBUG,
+            format='%(asctime)s [%(levelname)s] %(module)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M',
+        )
+        logger = logging.getLogger()
 
     #dependency check
     if sys.version_info < (3,4):
@@ -668,7 +686,8 @@ def main(args):
 
     print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
     print_message( "Arguments and dependencies checked:", argvs.silent, begin_t, logfile )
-    print_message( "    Input reads      : %s" % [x.name for x in argvs.input],     argvs.silent, begin_t, logfile )
+    if argvs.input:
+        print_message( "    Input reads      : %s" % [x.name for x in argvs.input],     argvs.silent, begin_t, logfile )
     print_message( "    Input SAM file   : %s" % samfile,         argvs.silent, begin_t, logfile )
     print_message( "    Database         : %s" % argvs.database,  argvs.silent, begin_t, logfile )
     print_message( "    Database level   : %s" % argvs.dbLevel,   argvs.silent, begin_t, logfile )

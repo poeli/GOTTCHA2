@@ -36,6 +36,6 @@ jobs:
       - name: Run test dataset
         run: |
           cd GOTTCHA2/test/
-          gottcha2 pull -u https://edge-dl.lanl.gov/GOTTCHA2/misc/Ebola.tar
-          gottcha2 profile -d database/Ebola.species.fna -i SRR11241255_1k_reads.fastq.gz
-          cat SRR11241255_1k_reads.tsv | grep 'Zaire ebolavirus'
+          tar -xzf gottcha2_database_Ebola_test.tar.gz
+          gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR11241255_1k_reads.fastq.gz
+          grep 'Orthoebolavirus zairense' SRR11241255_1k_reads.tsv

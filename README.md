@@ -2,13 +2,13 @@
 
 # Genomic Origin Through Taxonomic CHAllenge (GOTTCHA)
 
-[![gottcha2](https://github.com/poeli/GOTTCHA2/workflows/gottcha/badge.svg)](https://github.com/poeli/GOTTCHA2/actions?query=workflow%3Agottcha) 
+[![gottcha2](https://github.com/poeli/GOTTCHA2/workflows/gottcha/badge.svg)](https://github.com/poeli/GOTTCHA2/actions?query=workflow%3Agottcha)
 
 
-GOTTCHA is an application of a novel, gene-independent and signature-based metagenomic taxonomic profiling 
-method with significantly smaller false discovery rates (FDR) that is laptop deployable. Our algorithm was 
-tested and validated on twenty synthetic and mock datasets ranging in community composition and complexity, 
-was applied successfully to data generated from spiked environmental and clinical samples, and robustly 
+GOTTCHA is an application of a novel, gene-independent and signature-based metagenomic taxonomic profiling
+method with significantly smaller false discovery rates (FDR) that is laptop deployable. Our algorithm was
+tested and validated on twenty synthetic and mock datasets ranging in community composition and complexity,
+was applied successfully to data generated from spiked environmental and clinical samples, and robustly
 demonstrates superior performance compared with other available tools.
 
 GOTTCHAv2 is currently under development in BETA stage. Pre-built databases for v1 are incompatible with v2.
@@ -26,22 +26,27 @@ GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to si
 -------------------------------------------------------------------
 ## QUICK START
 
-1. Download or git clone GOTTCHA2 from this repository, `cd` to the cloned directory, and make a new directory for the database.
+1. Download or git clone GOTTCHA2 from this repository and `cd` to the cloned directory.
 
-2. Download NCBI taxonomy dmp files, species signature index tar file and untar the file.
+2. Run `pip install .`
 
-        $ wget https://edge-dl.lanl.gov/GOTTCHA2/RefSeq-r90.cg.BacteriaArchaeaViruses.species.tar
-        $ tar -xvf RefSeq-r90.cg.BacteriaArchaeaViruses.species.tar
-    
+2. Download the latest version of the GOTTCHA2 database. (This step may take some time)
+
+        https://ref-db.edgebioinformatics.org/gottcha2/RefSeq-r220/
+
 3. Run GOTTCHA2:
-
-        $ ./gottcha2.py -d database/RefSeq-r90.cg.BacteriaArchaeaViruses.species.fna -t 8 -i <FASTQ>
+        
+        $ gottcha2.py -d RefSeq-r220_BAVxH-cg/gottcha_db.species.fna -t 8 -i <FASTQ>
+        
+        OR
+        
+        $ gottcha2 profile -d RefSeq-r220_BAVxH-cg/gottcha_db.species.fna -t 8 -i <FASTQ>
 
 -------------------------------------------------------------------
 ## RESULT
 
 GOTTCHA2 can output the profiling results in either CSV, TSV or BIOM format.
-- summary (.tsv or .csv) - A summary of profiling results (10 columns) in taxonomic ranks breakdown 
+- summary (.tsv or .csv) - A summary of profiling results (10 columns) in taxonomic ranks breakdown
 - full (.tsv or .csv) - A full profiling results including unfiltered profiling results and additional columns
 - lineage (.lineage.tsv or .lineage.tsv) - output lineage and abundance of the profiled taxon per line
 - extract (.extract[TAXID].fastq) - Extracted reads for a specific taxon.
@@ -50,28 +55,28 @@ GOTTCHA2 can output the profiling results in either CSV, TSV or BIOM format.
 
 A full GOTTCHA2 report has 22 columns in tab-delimited format. The summary report is a brief version that has the first 10 columns and qualified taxonomies. The report lists profiling results at taxonomic rank breakdown from superkingdom to strain, following by other information listed below. The rollup depth of coverage (ROLLUP_DOC) is used to calculate relative abundance (column 10) by default, as well as other relative abundance calculations (column 19-21).
 
-| COLUMN | NAME                  | DESCRIPTION                                                                | NOTE                                                       | 
-|--------|-----------------------|----------------------------------------------------------------------------|------------------------------------------------------------| 
-| 1      | LEVEL                 | Taxonomic rank                                                             |                                                            | 
-| 2      | NAME                  | Taxonomic name                                                             |                                                            | 
-| 3      | TAXID                 | Taxonomic ID                                                               |                                                            | 
-| 4      | READ_COUNT            | Number of mapped reads                                                     |                                                            | 
-| 5      | TOTAL_BP_MAPPED       | Total bases of mapped reads                                                |                                                            | 
-| 6      | TOTAL_BP_MISMATCH     | Total mismatch bases of mapped reads                                       |                                                            | 
-| 7      | LINEAR_LENGTH         | Number of non-overlapping bases covering the signatures                    |                                                            | 
-| 8      | LINEAR_DOC            | Linear depth-of-coverage                                                   | = TOTAL_BP_MAPPED / LINEAR_LENGTH                          | 
-| 9      | ROLLUP_DOC            | Rollup depth-of-coverage                                                   | = ∑ DOC of sub-level                                       | 
-| 10     | REL_ABUNDANCE         | Relative abundance (normalized abundance)                                  | = ABUNDANCE / ∑ ABUNDANCE of given level                   | 
-| 11     | LINEAR_COV            | Proportion of covered signatures to total signatures of mapped organism(s) | = LINEAR_LENGTH / SIG_LENGTH_TOL                           | 
-| 12     | LINEAR_COV_MAPPED_SIG | Proportion of covered signatures to mapped signatures                      | = LINEAR_LENGTH / SIG_LENGTH_MAPPED                        | 
-| 13     | BEST_LINEAR_COV       | Best linear coverage of corresponding taxons                               |                                                            | 
-| 14     | DOC                   | Average depth-of-coverage                                                  | = TOTAL_BP_MAPPED / SIG_LENGTH_TOL                         | 
-| 15     | BEST_DOC              | Best DOC of corresponding taxons                                           |                                                            | 
-| 16     | SIG_LENGTH_TOL        | Length of all signatures in mapped organism(s)                             |                                                            | 
-| 17     | SIG_LENGTH_MAPPED     | Length of signatures in mapped signature fragment(s)                       |                                                            | 
+| COLUMN | NAME                  | DESCRIPTION                                                                | NOTE                                                       |
+|--------|-----------------------|----------------------------------------------------------------------------|------------------------------------------------------------|
+| 1      | LEVEL                 | Taxonomic rank                                                             |                                                            |
+| 2      | NAME                  | Taxonomic name                                                             |                                                            |
+| 3      | TAXID                 | Taxonomic ID                                                               |                                                            |
+| 4      | READ_COUNT            | Number of mapped reads                                                     |                                                            |
+| 5      | TOTAL_BP_MAPPED       | Total bases of mapped reads                                                |                                                            |
+| 6      | TOTAL_BP_MISMATCH     | Total mismatch bases of mapped reads                                       |                                                            |
+| 7      | LINEAR_LENGTH         | Number of non-overlapping bases covering the signatures                    |                                                            |
+| 8      | LINEAR_DOC            | Linear depth-of-coverage                                                   | = TOTAL_BP_MAPPED / LINEAR_LENGTH                          |
+| 9      | ROLLUP_DOC            | Rollup depth-of-coverage                                                   | = ∑ DOC of sub-level                                       |
+| 10     | REL_ABUNDANCE         | Relative abundance (normalized abundance)                                  | = ABUNDANCE / ∑ ABUNDANCE of given level                   |
+| 11     | LINEAR_COV            | Proportion of covered signatures to total signatures of mapped organism(s) | = LINEAR_LENGTH / SIG_LENGTH_TOL                           |
+| 12     | LINEAR_COV_MAPPED_SIG | Proportion of covered signatures to mapped signatures                      | = LINEAR_LENGTH / SIG_LENGTH_MAPPED                        |
+| 13     | BEST_LINEAR_COV       | Best linear coverage of corresponding taxons                               |                                                            |
+| 14     | DOC                   | Average depth-of-coverage                                                  | = TOTAL_BP_MAPPED / SIG_LENGTH_TOL                         |
+| 15     | BEST_DOC              | Best DOC of corresponding taxons                                           |                                                            |
+| 16     | SIG_LENGTH_TOL        | Length of all signatures in mapped organism(s)                             |                                                            |
+| 17     | SIG_LENGTH_MAPPED     | Length of signatures in mapped signature fragment(s)                       |                                                            |
 | 18     | ABUNDANCE             | abundance of the taxon                                                     | value of either ROLLUP_DOC, READ_COUNT or TOTAL_BP_MAPPED  |
 | 19     | ZSCORE                | Estimated Z-score of depth of coverage of the mapped region                |                                                            |
-| 20     | NOTE                  | Only note the reason for being filtered out                                |                                                            | 
+| 20     | NOTE                  | Only note the reason for being filtered out                                |                                                            |
 
 -------------------------------------------------------------------
 ## USAGE
@@ -159,4 +164,14 @@ optional arguments:
   --silent              Disable all messages.
   --debug               Debug mode. Provide verbose running messages and keep
                         all temporary files.
+```
+```
+usage: pull_database.py [-h] [-u URL] [-r RANK]
+
+This script will pull the latest version of the Gottcha2 database.
+
+optional arguments:
+  -h, --help            show this help message and exit
+  -u URL, --url URL     specify a URL to pull from (will override the default)
+  -r RANK, --rank RANK  taxonomic rank of the database (superkingdom, phylum, class, order, famiily, genus, species)
 ```
