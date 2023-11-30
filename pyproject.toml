@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "GOTTCHA2"
+version = "2.1.8.5'"  
+description = "Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) v2"
+readme = "README.md"
+authors = [
+    {name = "Po-E Li", email = "po-e@lanl.gov"}
+]
+license = {file = "LICENSE"}
+keywords = ["bioinformatics", "taxonomy", "profiler"]
+urls = {
+    Homepage = "https://github.com/poeli/GOTTCHA2"
+}
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: BSD License",
+    "Operating System :: OS Independent",
+    "Topic :: Scientific/Engineering :: Bio-Informatics"
+]
+
+[project.scripts]
+gottcha2 = "gottcha.cmd:gottcha2_command"
+
+[project.dependencies]
+numpy = "^1.26.2"
+pandas = "^2.1.3"
+requests = "^2.31.0"
+tdqm = "^4.66.1"
+
+[project.urls]
+Homepage = "https://github.com/poeli/GOTTCHA2/tree/master"
