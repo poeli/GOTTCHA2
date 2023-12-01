@@ -1,9 +1,10 @@
 
 #!/usr/bin/env python3
-import pull_database
-import gottcha2
 import sys
 import io
+from gottcha.scripts import pull_database
+from gottcha.scripts import gottcha2
+
 def usage():
     print("usage: gottcha2 profile --help\ngottcha2 pull --help")
     sys.exit()

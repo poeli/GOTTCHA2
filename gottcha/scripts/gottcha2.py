@@ -26,7 +26,7 @@ License for more details.
 
 import argparse as ap, textwrap as tw
 import sys, os, time, subprocess
-import taxonomy as gt
+from gottcha.scripts import taxonomy as gt
 import pandas as pd
 import gc
 from re import search,findall
