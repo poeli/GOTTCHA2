@@ -37,5 +37,5 @@ jobs:
         run: |
           cd GOTTCHA2/test/
           tar -xzf gottcha2_database_Ebola_test.tar.gz
-          gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR11241255_1k_reads.fastq.gz
-          grep 'Orthoebolavirus zairense' SRR11241255_1k_reads.tsv
+          gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz SRR12689945_2_1k.fastq.gz
+          grep 'Orthoebolavirus zairense' SRR12689945_1_1k.tsv
