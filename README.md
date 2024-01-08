@@ -21,7 +21,7 @@ GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to si
 - Python 3.4+
 - minimap2 2.1+
 - pandas
-- GNU awk
+- samtools
 
 -------------------------------------------------------------------
 ## QUICK START
