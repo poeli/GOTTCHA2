@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.5"
+__version__   = "2.1.8.6"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -240,6 +240,14 @@ def parse(line):
     read2   16  test    11  0   3S10M5S *   0   0   GGGCCCCCCCCCCGGGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
     """
     temp = line.split('\t')
+
+    # adding mate number to the read name, first in pair (0x40) or second in pair (0x80)
+    sam_flag = int(temp[1])
+    if sam_flag & 64:
+        temp[0] += ".1"
+    elif sam_flag & 128:
+        temp[0] += ".2"
+
     name = temp[0]
     match_len    = search(r'(\d+)M', temp[5])
     mismatch_len = search(r'NM:i:(\d+)', line)
@@ -581,7 +589,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
 
     bash_cmd   = "set -o pipefail; set -x;"
     mm2_cmd    = f"minimap2 {sr_opts} -t{threads} {db}.mmi {input_file}"
-    filter_cmd = "gawk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048) { if(r!=$1.and($2,64)){r=$1.and($2,64); s=$14} if($14>=s){print} }'"
+    filter_cmd = "samtools view -F4 -F2048"
     cmd        = "%s %s 2>> %s | %s > %s"%(bash_cmd, mm2_cmd, logfile, filter_cmd, samfile)
 
     proc = subprocess.Popen( cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
