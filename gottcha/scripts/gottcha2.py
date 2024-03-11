@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.5"
+__version__   = "2.1.8.5p1"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -575,7 +575,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     """
     input_file = " ".join([x.name for x in reads])
 
-    sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no -n1 -p1 -m24 -s30"
+    sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no --sam-hit-only -n1 -p1 -m24 -s30"
     if nanopore:
         sr_opts = f"-x {presetx} -N20 --secondary=no -a"
 
