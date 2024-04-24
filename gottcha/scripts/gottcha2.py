@@ -240,14 +240,6 @@ def parse(line):
     read2   16  test    11  0   3S10M5S *   0   0   GGGCCCCCCCCCCGGGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
     """
     temp = line.split('\t')
-
-    # adding mate number to the read name, first in pair (0x40) or second in pair (0x80)
-    sam_flag = int(temp[1])
-    if sam_flag & 64:
-        temp[0] += ".1"
-    elif sam_flag & 128:
-        temp[0] += ".2"
-
     name = temp[0]
     match_len    = search(r'(\d+)M', temp[5])
     mismatch_len = search(r'NM:i:(\d+)', line)
@@ -512,13 +504,19 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
 
     return rep_df
 
-def pile_lvl_zscore(tol_bp, genome_size, linear_len):
+def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
+    """
+    Calculate zscore of depths of mapped region
+    """
     try:
-        doc = tol_bp/genome_size
+        avg_doc = tol_bp/tol_sig_len
         lin_doc = tol_bp/linear_len
-        v = (linear_len*(lin_doc-doc)**2 + (genome_size-linear_len)*(doc)**2)/genome_size
+        v = (linear_len*(lin_doc-avg_doc)**2 + (tol_sig_len-linear_len)*(avg_doc)**2)/tol_sig_len
         sd = math.sqrt(v)
-        return (lin_doc-doc)/sd
+        if sd == 0.0:
+            return 0
+        else:
+            return (lin_doc-avg_doc)/sd
     except:
         return 99
 
@@ -583,16 +581,16 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     """
     input_file = " ".join([x.name for x in reads])
 
-    sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no -n1 -p1 -m24 -s30"
+    sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no --sam-hit-only -n1 -p1 -m24 -s30"
     if nanopore:
         sr_opts = f"-x {presetx} -N20 --secondary=no -a"
 
     bash_cmd   = "set -o pipefail; set -x;"
     mm2_cmd    = f"minimap2 {sr_opts} -t{threads} {db}.mmi {input_file}"
-    filter_cmd = "samtools view -F4 -F2048"
+    filter_cmd = "gawk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048) { if(r!=$1.and($2,64)){r=$1.and($2,64); s=$14} if($14>=s){print} }'"
     cmd        = "%s %s 2>> %s | %s > %s"%(bash_cmd, mm2_cmd, logfile, filter_cmd, samfile)
 
-    proc = subprocess.Popen( cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
+    proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     outs, errs = proc.communicate()
     exitcode = proc.poll()
 
@@ -657,11 +655,16 @@ def main(args):
             format='%(asctime)s [%(levelname)s] %(module)s: %(message)s',
             datefmt='%Y-%m-%d %H:%M',
         )
-        logger = logging.getLogger()
+    else:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s [%(levelname)s] %(module)s: %(message)s',
+            datefmt='%Y-%m-%d %H:%M',
+        )
 
     #dependency check
-    if sys.version_info < (3,4):
-        sys.exit("[ERROR] Python 3.4 or above is required.")
+    if sys.version_info < (3,6):
+        sys.exit("[ERROR] Python 3.6 or above is required.")
     dependency_check("minimap2")
     dependency_check("gawk")
 
