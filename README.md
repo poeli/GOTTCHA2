@@ -2,7 +2,8 @@
 
 # Genomic Origin Through Taxonomic CHAllenge (GOTTCHA)
 
-[![gottcha2](https://github.com/poeli/GOTTCHA2/workflows/gottcha/badge.svg)](https://github.com/poeli/GOTTCHA2/actions?query=workflow%3Agottcha)
+[![gottcha2](https://github.com/poeli/GOTTCHA2/actions/workflows/gottcha.yml/badge.svg?branch=master)](https://github.com/poeli/GOTTCHA2/actions/workflows/gottcha.yml)
+[![bioconda](https://anaconda.org/bioconda/gottcha2/badges/version.svg)](https://anaconda.org/bioconda/gottcha2)
 
 
 GOTTCHA is an application of a novel, gene-independent and signature-based metagenomic taxonomic profiling
@@ -18,23 +19,27 @@ GOTTCHAv2 is currently under development in BETA stage. Pre-built databases for 
 
 GOTTCHA2 profiler is written in Python3 and leverage minimap2 to map reads to signature sequences. In order to run GOTTCHA2 correctly, your system requires to have following dependencies installed correctly. The YAML file for Conda environment can be found in `environment.yml`.
 
-- Python 3.4+
-- minimap2 2.1+
+- Python 3.6+
+- minimap2 2.17+
 - pandas
 - samtools
 
 -------------------------------------------------------------------
 ## QUICK START
 
-1. Download or git clone GOTTCHA2 from this repository and `cd` to the cloned directory.
+1. Install the package:
 
-2. Run `pip install .`
+        via conda `conda install -c bioconda gottcha2`
 
-2. Download the latest version of the GOTTCHA2 database. (This step may take some time)
+        OR
+
+        Download or git clone GOTTCHA2 from this repository and run `pip install .`
+
+3. Download the latest version of the GOTTCHA2 database. (This step may take some time)
 
         https://ref-db.edgebioinformatics.org/gottcha2/RefSeq-r220/
 
-3. Run GOTTCHA2:
+4. Run GOTTCHA2:
         
         $ gottcha2.py -d RefSeq-r220_BAVxH-cg/gottcha_db.species.fna -t 8 -i <FASTQ>
         
