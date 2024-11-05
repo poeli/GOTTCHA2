@@ -25,6 +25,9 @@ jobs:
           environment-file: GOTTCHA2/environment.yml
           activate-environment: gottcha
 
+      - name: Install Setuptools
+        run: conda install -n gottcha setuptools
+
       - name: Check Install
         run: |
           conda list
