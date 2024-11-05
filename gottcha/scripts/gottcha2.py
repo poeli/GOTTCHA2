@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.6"
+__version__   = "2.1.8.7"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -203,6 +203,24 @@ def dependency_check(cmd):
         sys.stderr.write(f"[ERROR] {cmd}: {e}\n")
         sys.exit(1)
 
+def merge_ranges(ranges):
+    """Merge overlapping or consecutive ranges."""
+    # Sort ranges by start position
+    sorted_ranges = sorted(ranges, key=lambda x: x[0])
+    merged = []
+    for current in sorted_ranges:
+        if not merged:
+            merged.append(current)
+        else:
+            last = merged[-1]
+            # Check if current range overlaps or is adjacent to the last range
+            if current[0] <= last[1] + 1:
+                # Merge the ranges
+                merged[-1] = (last[0], max(last[1], current[1]))
+            else:
+                merged.append(current)
+    return merged
+
 def worker(filename, chunkStart, chunkSize):
     """Make a dict out of the parsed, supplied lines"""
     # processing alignments in SAM format
@@ -212,17 +230,17 @@ def worker(filename, chunkStart, chunkSize):
     res={}
 
     for line in lines:
-        k, r, m, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
+        k, r, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
         if valid_flag:
             if k in res:
-                res[k]["ML"] = res[k]["ML"] | m
+                res[k]['REGIONS'] = merge_ranges(res[k]['REGIONS']+[r])
                 if pri_aln_flag and valid_flag:
                     res[k]["MB"] += r[1] - r[0] + 1
                     res[k]["MR"] += 1
                     res[k]["NM"] += n
             else:
                 res[k]={}
-                res[k]["ML"] = m
+                res[k]["REGIONS"] = [r]
                 if pri_aln_flag and valid_flag:
                     res[k]["MB"] = r[1] - r[0] + 1
                     res[k]["MR"] = 1
@@ -251,12 +269,11 @@ def parse(line):
 
     (acc, rstart, rend, taxid) = ref.split('|')
     rlen = int(rend)-int(rstart)+1
-    mask = int( "%s%s"%("1"*(end-start+1), "0"*(rlen-end)), 2)
 
     primary_alignment_flag=False if int(temp[1]) & 256 else True
     valid_flag=True if (int(match_len.group(1)) >= rlen*0.5) or (int(match_len.group(1)) >= len(temp[9])*0.5) else False
 
-    return ref, [start, end], mask, int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
+    return ref, (start, end), int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
 
 def time_spend( start ):
     done = time.time()
@@ -317,7 +334,7 @@ def process_sam_file( sam_fn, numthreads, numlines ):
     for res in results:
         for k in res:
             if k in result:
-                result[k]["ML"] = result[k]["ML"] | res[k]["ML"]
+                result[k]['REGIONS'] = merge_ranges(result[k]['REGIONS']+res[k]['REGIONS'])
                 result[k]["MB"] += res[k]["MB"]
                 result[k]["MR"] += res[k]["MR"]
                 result[k]["NM"] += res[k]["NM"]
@@ -331,12 +348,9 @@ def process_sam_file( sam_fn, numthreads, numlines ):
         if not result[k]["MR"]:
             del result[k]
         else:
-            result[k]["LL"] = 0
+            result[k]["LL"] = sum(end - start + 1 for start, end in result[k]['REGIONS'])
+            del result[k]['REGIONS']
             mapped_reads += result[k]["MR"]
-            mask = result[k]["ML"]
-            del result[k]["ML"]
-            bitstr = bin(mask)
-            result[k]["LL"] = len(bitstr[2:].replace("0",""))
 
     return result, mapped_reads
 
@@ -457,12 +471,11 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
         str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
         str_df['LEVEL'] = rank
 
-        logger.debug( str_df )
-
         # rollup strains that make cutoffs
         lvl_df = pd.DataFrame()
         if rank == 'strain':
             lvl_df = str_df
+            lvl_df['LVL_TAXID'] = str_df['TAXID']
         else:
             lvl_df = str_df[qualified_idx].groupby(['LVL_NAME']).agg({
                 'LEVEL':'first',
@@ -484,6 +497,8 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
         # concart ranks-dataframe to the report-dataframe
         rep_df = pd.concat([rep_df, lvl_df.sort_values('ABUNDANCE', ascending=False)], sort=False)
 
+        
+
     rep_df["LINEAR_COV"] = rep_df["LINEAR_LEN"]/rep_df["TOL_SIG_LENGTH"]
     rep_df["LINEAR_COV_MAPPED_SIG"] = rep_df["LINEAR_LEN"]/rep_df["MAPPED_SIG_LENGTH"]
     rep_df["DOC"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["TOL_SIG_LENGTH"]
@@ -501,6 +516,8 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
 
     rep_df.drop(columns=['TAXID'], inplace=True)
     rep_df.rename(columns={"LVL_NAME": "NAME", "LVL_TAXID": "TAXID"}, inplace=True)
+
+    logging.debug(f'rep_df: {rep_df}')
 
     return rep_df
 
