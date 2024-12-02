@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.7"
+__version__   = "2.1.8.8"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -64,7 +64,7 @@ def parse_params( ver, args ):
                     help="""Specify the path of taxonomy information directory (taxonomy_db). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
 
     p.add_argument( '-np','--nanopore', action="store_true",
-                    help="Adjust options for Nanopore reads. The 'mismatch' option will be ignored. [-xm map-ont -mr 1]")
+                    help="Adjust options for Nanopore reads. The '--mismatch' option will be ignored. [-xm map-ont -mr 1 -mf 0]")
 
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
                     help="Mismatch penalty for the aligner. [default: 10]")
@@ -104,6 +104,9 @@ def parse_params( ver, args ):
 
     p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=10,
                     help="Maximum estimated zscore of depths of mapped region [default: 10]")
+
+    p.add_argument( '-mf','--matchFactor', metavar='<FLOAT>', type=float, default=0.5,
+                    help="Minimum fraction of the read or signature fragment required to be considered a valid match. [default: 0.5]")
 
     p.add_argument( '-nc','--noCutoff', action="store_true",
                     help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0].")
@@ -193,6 +196,7 @@ def parse_params( ver, args ):
     if args_parsed.nanopore:
         args_parsed.presetx = 'map-ont'
         args_parsed.minReads = 1
+        args_parsed.matchFactor = 0
 
     return args_parsed
 
@@ -221,7 +225,7 @@ def merge_ranges(ranges):
                 merged.append(current)
     return merged
 
-def worker(filename, chunkStart, chunkSize):
+def worker(filename, chunkStart, chunkSize, matchFactor):
     """Make a dict out of the parsed, supplied lines"""
     # processing alignments in SAM format
     f = open( filename )
@@ -230,7 +234,7 @@ def worker(filename, chunkStart, chunkSize):
     res={}
 
     for line in lines:
-        k, r, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
+        k, r, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
         if valid_flag:
             if k in res:
                 res[k]['REGIONS'] = merge_ranges(res[k]['REGIONS']+[r])
@@ -251,7 +255,7 @@ def worker(filename, chunkStart, chunkSize):
                     res[k]["NM"] = 0
     return res
 
-def parse(line):
+def parse(line, matchFactor):
     """
     Parse SAM format
     read1   0   test    11  0   5S10M3S *   0   0   GGGGGCCCCCCCCCCGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
@@ -271,7 +275,7 @@ def parse(line):
     rlen = int(rend)-int(rstart)+1
 
     primary_alignment_flag=False if int(temp[1]) & 256 else True
-    valid_flag=True if (int(match_len.group(1)) >= rlen*0.5) or (int(match_len.group(1)) >= len(temp[9])*0.5) else False
+    valid_flag = True if (int(match_len.group(1)) >= rlen * matchFactor) or (int(match_len.group(1)) >= len(temp[9])*matchFactor) else False
 
     return ref, (start, end), int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
 
@@ -304,7 +308,7 @@ def chunkify(fname, size=1*1024*1024):
             if chunkEnd > fileEnd:
                 break
 
-def process_sam_file( sam_fn, numthreads, numlines ):
+def process_sam_file( sam_fn, numthreads, numlines, matchFactor):
     result = gt._autoVivification()
     mapped_reads = 0
 
@@ -317,7 +321,7 @@ def process_sam_file( sam_fn, numthreads, numlines ):
     results = []
 
     for chunkStart,chunkSize in chunkify(sam_fn):
-        jobs.append( pool.apply_async(worker, (sam_fn,chunkStart,chunkSize)) )
+        jobs.append( pool.apply_async(worker, (sam_fn,chunkStart,chunkSize,matchFactor)) )
 
     #wait for all jobs to finish
     tol_jobs = len(jobs)
@@ -361,12 +365,12 @@ def is_descendant( taxid, taxid_ant ):
     else:
         return False
 
-def extract_read_from_sam( sam_fn, o, taxid, numthreads ):
+def extract_read_from_sam( sam_fn, o, taxid, numthreads, matchFactor ):
     pool = Pool(processes=numthreads)
     jobs = []
 
     for chunkStart,chunkSize in chunkify(sam_fn):
-        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxid)) )
+        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxid,matchFactor)) )
 
     #wait for all jobs to finish
     for job in jobs:
@@ -377,7 +381,7 @@ def extract_read_from_sam( sam_fn, o, taxid, numthreads ):
     #clean up
     pool.close()
 
-def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
+def ReadExtractWorker( filename, chunkStart, chunkSize, taxid, matchFactor):
     # output
     readstr=""
     # processing alignments in SAM format
@@ -385,7 +389,7 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
     f.seek(chunkStart)
     lines = f.read(chunkSize).splitlines()
     for line in lines:
-        ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
+        ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
 
         if not (pri_aln_flag and valid_flag): continue
 
@@ -758,10 +762,10 @@ def main(args):
             sam_fp = open( samfile, "r" )
 
     if argvs.extract:
-        extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads )
+        extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads, argvs.matchFactor )
         print_message( "Done extracting reads to %s." % outfile, argvs.silent, begin_t, logfile )
     else:
-        (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, lines_per_process)
+        (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, lines_per_process, argvs.matchFactor)
         print_message( "Done processing SAM file. %s qualified mapped reads." % mapped_r_cnt, argvs.silent, begin_t, logfile )
 
         if mapped_r_cnt:
