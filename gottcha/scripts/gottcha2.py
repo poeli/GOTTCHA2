@@ -389,7 +389,7 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid, matchFactor):
     f.seek(chunkStart)
     lines = f.read(chunkSize).splitlines()
     for line in lines:
-        ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
+        ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
 
         if not (pri_aln_flag and valid_flag): continue
 
