@@ -102,14 +102,14 @@ def parse_params( ver, args ):
     p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
                     help="Minimum unique length to be considered valid in abundance calculation [default: 60]")
 
-    p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=10,
-                    help="Maximum estimated zscore of depths of mapped region [default: 10]")
+    p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=30,
+                    help="Maximum estimated zscore of depths of mapped region [default: 30]")
 
     p.add_argument( '-mf','--matchFactor', metavar='<FLOAT>', type=float, default=0.5,
                     help="Minimum fraction of the read or signature fragment required to be considered a valid match. [default: 0.5]")
 
     p.add_argument( '-nc','--noCutoff', action="store_true",
-                    help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0].")
+                    help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0 -mf 0 -mz 999].")
 
     p.add_argument( '-c','--stdout', action="store_true",
                     help="Write on standard output.")
@@ -191,7 +191,8 @@ def parse_params( ver, args ):
         args_parsed.minCov = 0
         args_parsed.minReads = 0
         args_parsed.minLen = 0
-        args_parsed.maxZscore = 99
+        args_parsed.matchFactor = 0
+        args_parsed.maxZscore = 999
 
     if args_parsed.nanopore:
         args_parsed.presetx = 'map-ont'
@@ -539,7 +540,7 @@ def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
         else:
             return (lin_doc-avg_doc)/sd
     except:
-        return 99
+        return 999
 
 def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     """
@@ -732,6 +733,8 @@ def main(args):
     print_message( "    Minimal L_DOC    : %s" % argvs.minCov,    argvs.silent, begin_t, logfile )
     print_message( "    Minimal L_LEN    : %s" % argvs.minLen,    argvs.silent, begin_t, logfile )
     print_message( "    Minimal reads    : %s" % argvs.minReads,  argvs.silent, begin_t, logfile )
+    print_message( "    Minimal mFactor  : %s" % argvs.matchFactor, argvs.silent, begin_t, logfile )
+    print_message( "    Maximal zScore   : %s" % argvs.maxZscore, argvs.silent, begin_t, logfile )
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
