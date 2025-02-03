@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.6"
+__version__   = "2.1.8.9"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -64,7 +64,7 @@ def parse_params( ver, args ):
                     help="""Specify the path of taxonomy information directory (taxonomy_db). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
 
     p.add_argument( '-np','--nanopore', action="store_true",
-                    help="Adjust options for Nanopore reads. The 'mismatch' option will be ignored. [-xm map-ont -mr 1]")
+                    help="Adjust options for Nanopore reads. The '--mismatch' option will be ignored. [-xm map-ont -mr 1 -mf 0]")
 
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
                     help="Mismatch penalty for the aligner. [default: 10]")
@@ -94,19 +94,22 @@ def parse_params( ver, args ):
                     help="The preset option (-x) for minimap2. Default value 'sr' for short reads. [default: sr]")
 
     p.add_argument( '-mc','--minCov', metavar='<FLOAT>', type=float, default=0.005,
-                    help="Minimum linear coverage to be considered valid in abundance calculation [default: 0.005]")
+                    help="Minimum linear coverage to be considered valid in abundance calculation. [default: 0.005]")
 
     p.add_argument( '-mr','--minReads', metavar='<INT>', type=int, default=3,
-                    help="Minimum number of reads to be considered valid in abundance calculation [default: 3]")
+                    help="Minimum number of reads to be considered valid in abundance calculation. [default: 3]")
 
     p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
-                    help="Minimum unique length to be considered valid in abundance calculation [default: 60]")
+                    help="Minimum unique length to be considered valid in abundance calculation. [default: 60]")
 
-    p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=10,
-                    help="Maximum estimated zscore of depths of mapped region [default: 10]")
+    p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=30,
+                    help="Maximum estimated z-score for the depths of the mapped region. Set to 0 to disable. [default: 30]")
+
+    p.add_argument( '-mf','--matchFactor', metavar='<FLOAT>', type=float, default=0.5,
+                    help="Minimum fraction of the read or signature fragment required to be considered a valid match. [default: 0.5]")
 
     p.add_argument( '-nc','--noCutoff', action="store_true",
-                    help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0].")
+                    help="Remove all cutoffs. This option is equivalent to use. [-mc 0 -mr 0 -ml 0 -mf 0 -mz 0]")
 
     p.add_argument( '-c','--stdout', action="store_true",
                     help="Write on standard output.")
@@ -188,11 +191,14 @@ def parse_params( ver, args ):
         args_parsed.minCov = 0
         args_parsed.minReads = 0
         args_parsed.minLen = 0
-        args_parsed.maxZscore = 99
+        args_parsed.matchFactor = 0
+        args_parsed.maxZscore = 0
 
     if args_parsed.nanopore:
         args_parsed.presetx = 'map-ont'
         args_parsed.minReads = 1
+        args_parsed.matchFactor = 0
+        args_parsed.maxZscore = 0
 
     return args_parsed
 
@@ -203,7 +209,25 @@ def dependency_check(cmd):
         sys.stderr.write(f"[ERROR] {cmd}: {e}\n")
         sys.exit(1)
 
-def worker(filename, chunkStart, chunkSize):
+def merge_ranges(ranges):
+    """Merge overlapping or consecutive ranges."""
+    # Sort ranges by start position
+    sorted_ranges = sorted(ranges, key=lambda x: x[0])
+    merged = []
+    for current in sorted_ranges:
+        if not merged:
+            merged.append(current)
+        else:
+            last = merged[-1]
+            # Check if current range overlaps or is adjacent to the last range
+            if current[0] <= last[1] + 1:
+                # Merge the ranges
+                merged[-1] = (last[0], max(last[1], current[1]))
+            else:
+                merged.append(current)
+    return merged
+
+def worker(filename, chunkStart, chunkSize, matchFactor):
     """Make a dict out of the parsed, supplied lines"""
     # processing alignments in SAM format
     f = open( filename )
@@ -212,17 +236,17 @@ def worker(filename, chunkStart, chunkSize):
     res={}
 
     for line in lines:
-        k, r, m, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
+        k, r, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
         if valid_flag:
             if k in res:
-                res[k]["ML"] = res[k]["ML"] | m
+                res[k]['REGIONS'] = merge_ranges(res[k]['REGIONS']+[r])
                 if pri_aln_flag and valid_flag:
                     res[k]["MB"] += r[1] - r[0] + 1
                     res[k]["MR"] += 1
                     res[k]["NM"] += n
             else:
                 res[k]={}
-                res[k]["ML"] = m
+                res[k]["REGIONS"] = [r]
                 if pri_aln_flag and valid_flag:
                     res[k]["MB"] = r[1] - r[0] + 1
                     res[k]["MR"] = 1
@@ -233,7 +257,7 @@ def worker(filename, chunkStart, chunkSize):
                     res[k]["NM"] = 0
     return res
 
-def parse(line):
+def parse(line, matchFactor):
     """
     Parse SAM format
     read1   0   test    11  0   5S10M3S *   0   0   GGGGGCCCCCCCCCCGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
@@ -251,12 +275,11 @@ def parse(line):
 
     (acc, rstart, rend, taxid) = ref.split('|')
     rlen = int(rend)-int(rstart)+1
-    mask = int( "%s%s"%("1"*(end-start+1), "0"*(rlen-end)), 2)
 
     primary_alignment_flag=False if int(temp[1]) & 256 else True
-    valid_flag=True if (int(match_len.group(1)) >= rlen*0.5) or (int(match_len.group(1)) >= len(temp[9])*0.5) else False
+    valid_flag = True if (int(match_len.group(1)) >= rlen * matchFactor) or (int(match_len.group(1)) >= len(temp[9])*matchFactor) else False
 
-    return ref, [start, end], mask, int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
+    return ref, (start, end), int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
 
 def time_spend( start ):
     done = time.time()
@@ -287,7 +310,7 @@ def chunkify(fname, size=1*1024*1024):
             if chunkEnd > fileEnd:
                 break
 
-def process_sam_file( sam_fn, numthreads, numlines ):
+def process_sam_file( sam_fn, numthreads, numlines, matchFactor):
     result = gt._autoVivification()
     mapped_reads = 0
 
@@ -300,7 +323,7 @@ def process_sam_file( sam_fn, numthreads, numlines ):
     results = []
 
     for chunkStart,chunkSize in chunkify(sam_fn):
-        jobs.append( pool.apply_async(worker, (sam_fn,chunkStart,chunkSize)) )
+        jobs.append( pool.apply_async(worker, (sam_fn,chunkStart,chunkSize,matchFactor)) )
 
     #wait for all jobs to finish
     tol_jobs = len(jobs)
@@ -317,7 +340,7 @@ def process_sam_file( sam_fn, numthreads, numlines ):
     for res in results:
         for k in res:
             if k in result:
-                result[k]["ML"] = result[k]["ML"] | res[k]["ML"]
+                result[k]['REGIONS'] = merge_ranges(result[k]['REGIONS']+res[k]['REGIONS'])
                 result[k]["MB"] += res[k]["MB"]
                 result[k]["MR"] += res[k]["MR"]
                 result[k]["NM"] += res[k]["NM"]
@@ -331,12 +354,9 @@ def process_sam_file( sam_fn, numthreads, numlines ):
         if not result[k]["MR"]:
             del result[k]
         else:
-            result[k]["LL"] = 0
+            result[k]["LL"] = sum(end - start + 1 for start, end in result[k]['REGIONS'])
+            del result[k]['REGIONS']
             mapped_reads += result[k]["MR"]
-            mask = result[k]["ML"]
-            del result[k]["ML"]
-            bitstr = bin(mask)
-            result[k]["LL"] = len(bitstr[2:].replace("0",""))
 
     return result, mapped_reads
 
@@ -347,12 +367,12 @@ def is_descendant( taxid, taxid_ant ):
     else:
         return False
 
-def extract_read_from_sam( sam_fn, o, taxid, numthreads ):
+def extract_read_from_sam( sam_fn, o, taxid, numthreads, matchFactor ):
     pool = Pool(processes=numthreads)
     jobs = []
 
     for chunkStart,chunkSize in chunkify(sam_fn):
-        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxid)) )
+        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxid,matchFactor)) )
 
     #wait for all jobs to finish
     for job in jobs:
@@ -363,7 +383,7 @@ def extract_read_from_sam( sam_fn, o, taxid, numthreads ):
     #clean up
     pool.close()
 
-def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
+def ReadExtractWorker( filename, chunkStart, chunkSize, taxid, matchFactor):
     # output
     readstr=""
     # processing alignments in SAM format
@@ -371,7 +391,7 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid ):
     f.seek(chunkStart)
     lines = f.read(chunkSize).splitlines()
     for line in lines:
-        ref, region, mask, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line)
+        ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
 
         if not (pri_aln_flag and valid_flag): continue
 
@@ -449,20 +469,25 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
     # qualified strain
     qualified_idx = (str_df['LINEAR_LEN']/str_df['TOL_SIG_LENGTH'] >= mc) & \
                     (str_df['READ_COUNT'] >= mr) & \
-                    (str_df['LINEAR_LEN'] >= ml) & \
-                    (str_df['ZSCORE'] <= mz)
+                    (str_df['LINEAR_LEN'] >= ml)
+    
+    if mz > 0:
+        qualified_idx &= (str_df['ZSCORE'] <= mz)
 
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
-        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['name'])
-        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
-        str_df['LEVEL'] = rank
-
-        logger.debug( str_df )
+        try:
+            str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['name'])
+            str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
+            str_df['LEVEL'] = rank
+        except Exception as e:
+            logging.error(f"Error processing rank {rank}: {e}. Please verify that your taxonomy file matches the expected database.")
+            sys.exit(1)
 
         # rollup strains that make cutoffs
         lvl_df = pd.DataFrame()
         if rank == 'strain':
             lvl_df = str_df
+            lvl_df['LVL_TAXID'] = str_df['TAXID']
         else:
             lvl_df = str_df[qualified_idx].groupby(['LVL_NAME']).agg({
                 'LEVEL':'first',
@@ -496,11 +521,15 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
     rep_df.loc[filtered, 'NOTE'] += "Filtered out (minReads > " + rep_df.loc[filtered, 'READ_COUNT'].astype(str) + "); "
     filtered = (rep_df['LINEAR_LEN'] < ml)
     rep_df.loc[filtered, 'NOTE'] += "Filtered out (minLen > " + rep_df.loc[filtered, 'LINEAR_LEN'].astype(str) + "); "
-    filtered = (rep_df['ZSCORE'] > mz)
-    rep_df.loc[filtered, 'NOTE'] += "Filtered out (maxZscore < " + rep_df.loc[filtered, 'ZSCORE'].astype(str) + "); "
+
+    if mz > 0:
+        filtered = (rep_df['ZSCORE'] > mz)
+        rep_df.loc[filtered, 'NOTE'] += "Filtered out (maxZscore < " + rep_df.loc[filtered, 'ZSCORE'].astype(str) + "); "
 
     rep_df.drop(columns=['TAXID'], inplace=True)
     rep_df.rename(columns={"LVL_NAME": "NAME", "LVL_TAXID": "TAXID"}, inplace=True)
+
+    logging.debug(f'rep_df: {rep_df}')
 
     return rep_df
 
@@ -518,7 +547,7 @@ def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
         else:
             return (lin_doc-avg_doc)/sd
     except:
-        return 99
+        return 0
 
 def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     """
@@ -711,6 +740,8 @@ def main(args):
     print_message( "    Minimal L_DOC    : %s" % argvs.minCov,    argvs.silent, begin_t, logfile )
     print_message( "    Minimal L_LEN    : %s" % argvs.minLen,    argvs.silent, begin_t, logfile )
     print_message( "    Minimal reads    : %s" % argvs.minReads,  argvs.silent, begin_t, logfile )
+    print_message( "    Minimal mFactor  : %s" % argvs.matchFactor, argvs.silent, begin_t, logfile )
+    print_message( "    Maximal zScore   : %s" % argvs.maxZscore, argvs.silent, begin_t, logfile )
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
@@ -741,10 +772,10 @@ def main(args):
             sam_fp = open( samfile, "r" )
 
     if argvs.extract:
-        extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads )
+        extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads, argvs.matchFactor )
         print_message( "Done extracting reads to %s." % outfile, argvs.silent, begin_t, logfile )
     else:
-        (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, lines_per_process)
+        (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, lines_per_process, argvs.matchFactor)
         print_message( "Done processing SAM file. %s qualified mapped reads." % mapped_r_cnt, argvs.silent, begin_t, logfile )
 
         if mapped_r_cnt:

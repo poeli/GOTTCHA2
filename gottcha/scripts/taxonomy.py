@@ -35,10 +35,10 @@ elif os.path.isdir( os.getcwd()+"/taxonomy_db" ):
     taxonomy_dir = os.getcwd()+"/taxonomy_db"
 
 # init global dir
-taxDepths      = {}
-taxParents     = {}
-taxRanks       = {}
-taxNames       = {}
+taxDepths      = {"1": 0}
+taxParents     = {"1": "1"}
+taxRanks       = {"1": "root"}
+taxNames       = {"1": "root"}
 taxMerged      = {}
 taxNumChilds   = {}
 accTid         = {}
