@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.8"
+__version__   = "2.1.8.9"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -94,22 +94,22 @@ def parse_params( ver, args ):
                     help="The preset option (-x) for minimap2. Default value 'sr' for short reads. [default: sr]")
 
     p.add_argument( '-mc','--minCov', metavar='<FLOAT>', type=float, default=0.005,
-                    help="Minimum linear coverage to be considered valid in abundance calculation [default: 0.005]")
+                    help="Minimum linear coverage to be considered valid in abundance calculation. [default: 0.005]")
 
     p.add_argument( '-mr','--minReads', metavar='<INT>', type=int, default=3,
-                    help="Minimum number of reads to be considered valid in abundance calculation [default: 3]")
+                    help="Minimum number of reads to be considered valid in abundance calculation. [default: 3]")
 
     p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
-                    help="Minimum unique length to be considered valid in abundance calculation [default: 60]")
+                    help="Minimum unique length to be considered valid in abundance calculation. [default: 60]")
 
     p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=30,
-                    help="Maximum estimated zscore of depths of mapped region [default: 30]")
+                    help="Maximum estimated z-score for the depths of the mapped region. Set to 0 to disable. [default: 30]")
 
     p.add_argument( '-mf','--matchFactor', metavar='<FLOAT>', type=float, default=0.5,
                     help="Minimum fraction of the read or signature fragment required to be considered a valid match. [default: 0.5]")
 
     p.add_argument( '-nc','--noCutoff', action="store_true",
-                    help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0 -mf 0 -mz 999].")
+                    help="Remove all cutoffs. This option is equivalent to use. [-mc 0 -mr 0 -ml 0 -mf 0 -mz 0]")
 
     p.add_argument( '-c','--stdout', action="store_true",
                     help="Write on standard output.")
@@ -192,12 +192,13 @@ def parse_params( ver, args ):
         args_parsed.minReads = 0
         args_parsed.minLen = 0
         args_parsed.matchFactor = 0
-        args_parsed.maxZscore = 999
+        args_parsed.maxZscore = 0
 
     if args_parsed.nanopore:
         args_parsed.presetx = 'map-ont'
         args_parsed.minReads = 1
         args_parsed.matchFactor = 0
+        args_parsed.maxZscore = 0
 
     return args_parsed
 
@@ -468,13 +469,19 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
     # qualified strain
     qualified_idx = (str_df['LINEAR_LEN']/str_df['TOL_SIG_LENGTH'] >= mc) & \
                     (str_df['READ_COUNT'] >= mr) & \
-                    (str_df['LINEAR_LEN'] >= ml) & \
-                    (str_df['ZSCORE'] <= mz)
+                    (str_df['LINEAR_LEN'] >= ml)
+    
+    if mz > 0:
+        qualified_idx &= (str_df['ZSCORE'] <= mz)
 
     for rank in sorted(major_ranks, key=major_ranks.__getitem__):
-        str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['name'])
-        str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
-        str_df['LEVEL'] = rank
+        try:
+            str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['name'])
+            str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
+            str_df['LEVEL'] = rank
+        except Exception as e:
+            logging.error(f"Error processing rank {rank}: {e}. Please verify that your taxonomy file matches the expected database.")
+            sys.exit(1)
 
         # rollup strains that make cutoffs
         lvl_df = pd.DataFrame()
@@ -502,8 +509,6 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
         # concart ranks-dataframe to the report-dataframe
         rep_df = pd.concat([rep_df, lvl_df.sort_values('ABUNDANCE', ascending=False)], sort=False)
 
-        
-
     rep_df["LINEAR_COV"] = rep_df["LINEAR_LEN"]/rep_df["TOL_SIG_LENGTH"]
     rep_df["LINEAR_COV_MAPPED_SIG"] = rep_df["LINEAR_LEN"]/rep_df["MAPPED_SIG_LENGTH"]
     rep_df["DOC"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["TOL_SIG_LENGTH"]
@@ -516,8 +521,10 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
     rep_df.loc[filtered, 'NOTE'] += "Filtered out (minReads > " + rep_df.loc[filtered, 'READ_COUNT'].astype(str) + "); "
     filtered = (rep_df['LINEAR_LEN'] < ml)
     rep_df.loc[filtered, 'NOTE'] += "Filtered out (minLen > " + rep_df.loc[filtered, 'LINEAR_LEN'].astype(str) + "); "
-    filtered = (rep_df['ZSCORE'] > mz)
-    rep_df.loc[filtered, 'NOTE'] += "Filtered out (maxZscore < " + rep_df.loc[filtered, 'ZSCORE'].astype(str) + "); "
+
+    if mz > 0:
+        filtered = (rep_df['ZSCORE'] > mz)
+        rep_df.loc[filtered, 'NOTE'] += "Filtered out (maxZscore < " + rep_df.loc[filtered, 'ZSCORE'].astype(str) + "); "
 
     rep_df.drop(columns=['TAXID'], inplace=True)
     rep_df.rename(columns={"LVL_NAME": "NAME", "LVL_TAXID": "TAXID"}, inplace=True)
@@ -540,7 +547,7 @@ def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
         else:
             return (lin_doc-avg_doc)/sd
     except:
-        return 999
+        return 0
 
 def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     """

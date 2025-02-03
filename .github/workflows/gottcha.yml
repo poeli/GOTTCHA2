@@ -40,5 +40,14 @@ jobs:
         run: |
           cd GOTTCHA2/test/
           tar -xzf gottcha2_database_Ebola_test.tar.gz
+          gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz SRR12689945_2_1k.fastq.gz
+          gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz -nc
+          gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i gottcha2_database_test/gottcha_db.species.fna.gz -np
           grep 'Orthoebolavirus zairense' SRR12689945_1_1k.tsv
+
+      - name: Run unit tests
+        run: |
+          cd GOTTCHA2/test
+          python -m unittest test_gottcha2.py
+          python -m unittest test_taxonomy.py
