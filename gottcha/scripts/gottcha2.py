@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.9"
+__version__   = "2.1.8.10"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -26,7 +26,6 @@ License for more details.
 
 import argparse as ap, textwrap as tw
 import sys, os, time, subprocess
-import taxonomy as gt
 import pandas as pd
 import gc
 from re import search,findall
@@ -36,9 +35,33 @@ from itertools import chain
 import math
 import logging
 
+try:
+    # Try relative import first (for package usage)
+    from . import taxonomy as gt
+except ImportError:
+    # Fall back to direct import (for script usage)
+    import taxonomy as gt
+
 logger = logging.getLogger()
 
-def parse_params( ver, args ):
+def parse_params(ver, args):
+    """
+    Parse and validate command line arguments for GOTTCHA2.
+    
+    This function sets up the argument parser, defines all possible command-line
+    options, parses the provided arguments, and performs validation to ensure
+    the configuration is valid and complete.
+    
+    Parameters:
+        ver (str): Version string to display in help messages
+        args (list): Command line arguments to parse
+        
+    Returns:
+        argparse.Namespace: Object containing all validated arguments
+        
+    Raises:
+        SystemExit: If validation fails or --version is specified
+    """
     p = ap.ArgumentParser( prog='gottcha2.py', description="""Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) is an
             annotation-independent and signature-based metagenomic taxonomic profiling tool
             that has significantly smaller FDR than other profiling tools. This program
@@ -183,8 +206,12 @@ def parse_params( ver, args ):
                     break
         elif args_parsed.sam:
             name = search(r'\.gottcha_(\w+).sam$', args_parsed.sam[0].name )
-            args_parsed.dbLevel = name.group(1)
-        else:
+            try:
+                args_parsed.dbLevel = name.group(1)
+            except:
+                pass
+        
+        if not args_parsed.dbLevel:
             p.error( '--dbLevel is missing and cannot be auto-detected.' )
 
     if args_parsed.noCutoff:
@@ -203,6 +230,21 @@ def parse_params( ver, args ):
     return args_parsed
 
 def dependency_check(cmd):
+    """
+    Verify that external dependencies are available in the system.
+    
+    Attempts to execute the specified command with --help and checks if it runs
+    successfully. Exits the program if the command is not found or fails.
+    
+    Parameters:
+        cmd (str): Command to check
+        
+    Returns:
+        None
+        
+    Raises:
+        SystemExit: If the command is not found or fails
+    """
     try:
         subprocess.check_call([cmd, "--help"], stdout=subprocess.DEVNULL)
     except Exception as e:
@@ -210,7 +252,23 @@ def dependency_check(cmd):
         sys.exit(1)
 
 def merge_ranges(ranges):
-    """Merge overlapping or consecutive ranges."""
+    """
+    Merge overlapping or consecutive genomic ranges.
+    
+    Takes a list of (start, end) tuples representing genomic ranges and merges
+    any ranges that overlap or are directly adjacent (consecutive positions).
+    This is used to calculate accurate linear coverage for mapped reads.
+    
+    Parameters:
+        ranges (list): List of (start, end) tuples representing genomic ranges
+        
+    Returns:
+        list: List of merged (start, end) tuples with no overlaps
+    
+    Example:
+        >>> merge_ranges([(1, 5), (4, 8), (10, 12)])
+        [(1, 8), (10, 12)]
+    """
     # Sort ranges by start position
     sorted_ranges = sorted(ranges, key=lambda x: x[0])
     merged = []
@@ -228,7 +286,22 @@ def merge_ranges(ranges):
     return merged
 
 def worker(filename, chunkStart, chunkSize, matchFactor):
-    """Make a dict out of the parsed, supplied lines"""
+    """
+    Process a chunk of a SAM file to extract mapping information.
+    
+    This function is intended to be run in parallel to process different chunks
+    of a SAM file. It parses lines within the specified chunk and builds a dictionary
+    of reference sequences with their mapped regions, base counts, read counts, etc.
+    
+    Parameters:
+        filename (str): Path to the SAM file to process
+        chunkStart (int): Byte position in the file where to start reading
+        chunkSize (int): Number of bytes to read from the start position
+        matchFactor (float): Minimum fraction required for a valid match
+        
+    Returns:
+        dict: Dictionary with reference sequences as keys and mapping statistics as values
+    """
     # processing alignments in SAM format
     f = open( filename )
     f.seek(chunkStart)
@@ -237,31 +310,58 @@ def worker(filename, chunkStart, chunkSize, matchFactor):
 
     for line in lines:
         k, r, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
-        if valid_flag:
+        # parsed values from SAM line
+        # only k, r, n, pri_aln_flag, valid_flag are used
+        # k: reference name
+        # r: (start, end) of mapped region
+        # n: number of mismatches
+        # pri_aln_flag: whether this is a primary alignment
+        # valid_flag: whether this alignment meets match criteria
+
+        if pri_aln_flag and valid_flag:
             if k in res:
                 res[k]['REGIONS'] = merge_ranges(res[k]['REGIONS']+[r])
-                if pri_aln_flag and valid_flag:
-                    res[k]["MB"] += r[1] - r[0] + 1
-                    res[k]["MR"] += 1
-                    res[k]["NM"] += n
+                res[k]["MB"] += r[1] - r[0] + 1
+                res[k]["MR"] += 1
+                res[k]["NM"] += n
             else:
                 res[k]={}
                 res[k]["REGIONS"] = [r]
-                if pri_aln_flag and valid_flag:
-                    res[k]["MB"] = r[1] - r[0] + 1
-                    res[k]["MR"] = 1
-                    res[k]["NM"] = n
-                else:
-                    res[k]["MB"] = 0
-                    res[k]["MR"] = 0
-                    res[k]["NM"] = 0
+                res[k]["MB"] = r[1] - r[0] + 1
+                res[k]["MR"] = 1
+                res[k]["NM"] = n
     return res
 
 def parse(line, matchFactor):
     """
-    Parse SAM format
-    read1   0   test    11  0   5S10M3S *   0   0   GGGGGCCCCCCCCCCGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
-    read2   16  test    11  0   3S10M5S *   0   0   GGGCCCCCCCCCCGGGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
+    Parse a line from a SAM file and extract relevant mapping information.
+    
+    Parses alignment details from a SAM format line, including reference ID, 
+    match position, mismatches, sequence quality, and flags. Determines if
+    the alignment is a valid match based on matchFactor criteria.
+    
+    Parameters:
+        line (str): A line from a SAM file
+        matchFactor (float): Minimum fraction required for a valid match
+        
+    Returns:
+        tuple: (
+            ref (str): Reference identifier,
+            (start, end) (tuple): Mapped region coordinates,
+            mismatches (int): Number of mismatches,
+            read_name (str): Name of the read,
+            read_seq (str): Read sequence,
+            read_qual (str): Read quality string, 
+            flag (str): SAM flag,
+            cigar (str): CIGAR string,
+            primary_alignment_flag (bool): Whether this is a primary alignment,
+            valid_flag (bool): Whether this alignment meets match criteria
+        )
+    
+    Example:
+        SAM format example:
+        read1   0   test    11  0   5S10M3S *   0   0   GGGGGCCCCCCCCCCGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
+        read2   16  test    11  0   3S10M5S *   0   0   GGGCCCCCCCCCCGGGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
     """
     temp = line.split('\t')
     name = temp[0]
@@ -281,12 +381,37 @@ def parse(line, matchFactor):
 
     return ref, (start, end), int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
 
-def time_spend( start ):
+def time_spend(start):
+    """
+    Calculate and format elapsed time since a given start time.
+    
+    Parameters:
+        start (float): Starting time in seconds (as returned by time.time())
+        
+    Returns:
+        str: Formatted time string in HH:MM:SS format
+    """
     done = time.time()
     elapsed = done - start
     return time.strftime( "%H:%M:%S", time.gmtime(elapsed) )
 
 def chunkify(fname, size=1*1024*1024):
+    """
+    Split a file into chunks for parallel processing.
+    
+    Divides a file into chunks of approximately the specified size, ensuring
+    that all alignments for a single read are kept in the same chunk.
+    This is critical for accurate processing of multi-mapped reads.
+    
+    Parameters:
+        fname (str): Path to the file to be chunked
+        size (int): Approximate chunk size in bytes (default: 1MB)
+        
+    Yields:
+        tuple: (chunkStart, chunkSize) where:
+            - chunkStart (int): Byte position to start reading
+            - chunkSize (int): Number of bytes to read from that position
+    """
     fileEnd = os.path.getsize(fname)
     with open(fname, "rb") as f:
         chunkEnd = f.tell()
@@ -310,7 +435,24 @@ def chunkify(fname, size=1*1024*1024):
             if chunkEnd > fileEnd:
                 break
 
-def process_sam_file( sam_fn, numthreads, numlines, matchFactor):
+def process_sam_file(sam_fn, numthreads, matchFactor):
+    """
+    Process a SAM file using parallel execution to extract mapping information.
+    
+    Divides the SAM file into chunks, processes each chunk in parallel using a thread pool,
+    and then merges the results. Computes the linear coverage for each reference sequence.
+    
+    Parameters:
+        sam_fn (str): Path to the SAM file
+        numthreads (int): Number of parallel processes to use
+        matchFactor (float): Minimum fraction required for a valid match
+        
+    Returns:
+        tuple: (
+            result (dict): Dictionary with references as keys and mapping statistics as values,
+            mapped_reads (int): Total number of reads that mapped
+        )
+    """
     result = gt._autoVivification()
     mapped_reads = 0
 
@@ -360,14 +502,40 @@ def process_sam_file( sam_fn, numthreads, numlines, matchFactor):
 
     return result, mapped_reads
 
-def is_descendant( taxid, taxid_ant ):
+def is_descendant(taxid, taxid_ant):
+    """
+    Check if one taxid is a descendant of another in the taxonomy tree.
+    
+    Parameters:
+        taxid (str): The taxid to check
+        taxid_ant (str): The potential ancestor taxid
+        
+    Returns:
+        bool: True if taxid is a descendant of taxid_ant, False otherwise
+    """
     fullLineage = gt.taxid2fullLineage( taxid )
     if "|%s|" % taxid_ant in fullLineage:
         return True
     else:
         return False
 
-def extract_read_from_sam( sam_fn, o, taxid, numthreads, matchFactor ):
+def extract_read_from_sam(sam_fn, o, taxid, numthreads, matchFactor):
+    """
+    Extract reads from a SAM file that map to a specific taxid or its descendants.
+    
+    Processes the SAM file in parallel chunks and writes matching reads in FASTQ format
+    to the provided output file.
+    
+    Parameters:
+        sam_fn (str): Path to the SAM file
+        o (file): Output file handle to write extracted reads
+        taxid (str): Taxid to extract reads for (including descendants)
+        numthreads (int): Number of parallel processes to use
+        matchFactor (float): Minimum fraction required for a valid match
+        
+    Returns:
+        None: Results are written directly to the output file
+    """
     pool = Pool(processes=numthreads)
     jobs = []
 
@@ -383,7 +551,23 @@ def extract_read_from_sam( sam_fn, o, taxid, numthreads, matchFactor ):
     #clean up
     pool.close()
 
-def ReadExtractWorker( filename, chunkStart, chunkSize, taxid, matchFactor):
+def ReadExtractWorker(filename, chunkStart, chunkSize, taxid, matchFactor):
+    """
+    Worker function to extract reads from a chunk of SAM file.
+    
+    Processes a chunk of SAM file and extracts reads that map to a specific taxid
+    or its descendants, formatting them as FASTQ entries.
+    
+    Parameters:
+        filename (str): Path to the SAM file
+        chunkStart (int): Byte position to start reading
+        chunkSize (int): Number of bytes to read
+        taxid (str): Taxid to filter reads for
+        matchFactor (float): Minimum fraction required for a valid match
+        
+    Returns:
+        str: FASTQ-formatted string containing all matching reads
+    """
     # output
     readstr=""
     # processing alignments in SAM format
@@ -408,12 +592,38 @@ def ReadExtractWorker( filename, chunkStart, chunkSize, taxid, matchFactor):
             readstr += "@%s %s:%s..%s %s\n%s\n+\n%s\n" % (rname, ref, region[0], region[1], cigr, rseq, rq)
     return readstr
 
-def seqReverseComplement( seq ):
+def seqReverseComplement(seq):
+    """
+    Generate the reverse complement of a DNA sequence.
+    
+    Creates a mapping dictionary for complementary bases and applies it to the
+    reversed sequence. Handles both uppercase and lowercase nucleotides.
+    
+    Parameters:
+        seq (str): DNA sequence string
+        
+    Returns:
+        str: Reverse complemented DNA sequence
+    """
     seq1 = 'ACGTURYSWKMBDHVNTGCAAYRSWMKVHDBNacgturyswkmbdhvntgcaayrswmkvhdbn'
     seq_dict = { seq1[i]:seq1[i+16] for i in range(64) if i < 16 or 32<=i<48 }
     return "".join([seq_dict[base] for base in reversed(seq)])
 
 def group_refs_to_strains(r):
+    """
+    Group reference mapping results by strains and calculate strain-level statistics.
+    
+    Converts the mapping results dictionary to a pandas DataFrame and groups by
+    taxonomic identifier. Calculates various statistics including total mapped bases,
+    read counts, coverage, and depth of coverage.
+    
+    Parameters:
+        r (dict): Dictionary with reference sequences as keys and mapping statistics
+                 as values (output from process_sam_file)
+        
+    Returns:
+        pandas.DataFrame: DataFrame with strain-level statistics
+    """
     # covert mapping info to df
     r_df = pd.DataFrame.from_dict(r, orient='index').reset_index()
     r_df.rename(columns={"index": "RNAME"}, inplace=True)
@@ -455,9 +665,25 @@ def group_refs_to_strains(r):
 
     return str_df
 
-def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
+def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
     """
-    Take parsed SAM output and rollup to superkingdoms
+    Aggregate strain-level results to higher taxonomic ranks.
+    
+    Starting from strain-level mapping data, this function rolls up statistics to
+    higher taxonomic ranks (species, genus, family, etc.). It applies the specified
+    cutoff criteria to filter results and marks entries that fall below these thresholds.
+    
+    Parameters:
+        r (dict): Dictionary with reference sequences as keys and mapping stats as values
+        abu_col (str): Column name to use for abundance calculations
+        tg_rank (str): Target taxonomic rank
+        mc (float): Minimum linear coverage threshold
+        mr (int): Minimum read count threshold
+        ml (int): Minimum linear length threshold
+        mz (float): Maximum Z-score threshold (0 to disable)
+        
+    Returns:
+        pandas.DataFrame: DataFrame with rolled-up taxonomy at all ranks
     """
     major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7,"strain":8}
 
@@ -535,7 +761,18 @@ def roll_up_taxonomy(r, db_stats, abu_col, tg_rank, mc, mr, ml, mz):
 
 def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
     """
-    Calculate zscore of depths of mapped region
+    Calculate Z-score for the depth of coverage of mapped regions.
+    
+    This determines how unusual the coverage depth is compared to expected depth
+    based on a statistical model. Higher Z-scores may indicate biased mapping.
+    
+    Parameters:
+        tol_bp (int): Total number of mapped bases
+        tol_sig_len (int): Total length of the signature
+        linear_len (int): Linear length (de-duplicated) covered by mappings
+        
+    Returns:
+        float: Z-score for the depth distribution (or 0 if calculation fails)
     """
     try:
         avg_doc = tol_bp/tol_sig_len
@@ -551,7 +788,19 @@ def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
 
 def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     """
-    output result in tsv or csv format
+    Generate taxonomy result files in TSV or CSV format.
+    
+    Creates two files: a summary file with only qualified results, and
+    a full report with all results including filtered entries.
+    
+    Parameters:
+        rep_df (pandas.DataFrame): Taxonomy results DataFrame
+        o (file): Output file handle for the summary results
+        fullreport_o (str): Path for the full report file
+        fmt (str): Output format, either 'tsv' or 'csv'
+        
+    Returns:
+        bool: True if successful
     """
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
@@ -572,7 +821,22 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
 
 def generaete_biom_file(res_df, o, tg_rank, sampleid):
     """
-    output result in biom format
+    Generate a BIOM format file from taxonomy results.
+    
+    Creates a BIOM (Biological Observation Matrix) formatted file for
+    compatibility with downstream microbiome analysis tools.
+    
+    Parameters:
+        res_df (pandas.DataFrame): Taxonomy results DataFrame
+        o (file): Output file handle
+        tg_rank (str): Target taxonomic rank to include in the output
+        sampleid (str): Sample identifier
+        
+    Returns:
+        bool: True if successful
+        
+    Raises:
+        SystemExit: If the biom library version is incompatible
     """
     import numpy as np
     import biom
@@ -596,7 +860,18 @@ def generaete_biom_file(res_df, o, tg_rank, sampleid):
 
 def generaete_lineage_file(target_df, o, tg_rank):
     """
-    output abundance-lineage in tsv format
+    Generate a lineage file showing taxonomic paths with abundances.
+    
+    Creates a tab-delimited file with abundance values followed by
+    the complete taxonomic lineage for each taxon.
+    
+    Parameters:
+        target_df (pandas.DataFrame): DataFrame containing abundance and taxids
+        o (str): Output file path
+        tg_rank (str): Target taxonomic rank
+        
+    Returns:
+        bool: True if successful
     """
     lineage_df = target_df['TAXID'].apply(lambda x: gt.taxid2lineage(x, True, True)).str.split('|', expand=True)
     result = pd.concat([target_df['ABUNDANCE'], lineage_df], axis=1, sort=False)
@@ -606,18 +881,39 @@ def generaete_lineage_file(target_df, o, tg_rank):
 
 def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanopore):
     """
-    mapping reads to database
+    Map reads to the reference database using minimap2.
+    
+    Builds and executes a command to run minimap2 for read mapping, with parameters
+    adjusted based on input settings. Filters the SAM output to keep only relevant
+    alignments.
+    
+    Parameters:
+        reads (list): List of input read file objects
+        db (str): Path to the minimap2 database (without .mmi extension)
+        threads (int): Number of threads to use
+        mm_penalty (int): Mismatch penalty for alignment
+        presetx (str): Minimap2 preset mode ('sr', 'map-pb', or 'map-ont')
+        samfile (str): Output SAM file path
+        logfile (str): Log file path
+        nanopore (bool): Whether to use Nanopore-specific settings
+        
+    Returns:
+        tuple: (
+            exitcode (int): Exit code from the mapping process,
+            cmd (str): Command that was executed,
+            errs (str): Error output from the command
+        )
     """
     input_file = " ".join([x.name for x in reads])
 
     sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no --sam-hit-only -n1 -p1 -m24 -s30"
     if nanopore:
-        sr_opts = f"-x {presetx} -N20 --secondary=no -a"
+        sr_opts = f"-x {presetx} -N20 --secondary=no --sam-hit-only -a"
 
-    bash_cmd   = "set -o pipefail; set -x;"
+    bash_cmd   = f"set -o pipefail; set -x;"
     mm2_cmd    = f"minimap2 {sr_opts} -t{threads} {db}.mmi {input_file}"
-    filter_cmd = "gawk -F\\\\t '!/^@/ && !and($2,4) && !and($2,2048) { if(r!=$1.and($2,64)){r=$1.and($2,64); s=$14} if($14>=s){print} }'"
-    cmd        = "%s %s 2>> %s | %s > %s"%(bash_cmd, mm2_cmd, logfile, filter_cmd, samfile)
+    filter_cmd = f"grep -v '^@'"
+    cmd        = f"{bash_cmd} {mm2_cmd} 2>> {logfile} | {filter_cmd} > {samfile}"
 
     proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     outs, errs = proc.communicate()
@@ -627,19 +923,27 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
 
 def loadDatabaseStats(db_stats_file):
     """
-    loading database stats from db_path.stats
-
-    The input stats file is a 8 column tab delimited text file:
-    1. Rank
-    2. Name
-    3. Taxid
-    4. Superkingdom
-    5. NumOfSeq
-    6. Max
-    7. Min
-    8. TotalLength
-
-    We will only save stain level info with their taxid (2) and total signature length (8).
+    Load database signature statistics from a stats file.
+    
+    Reads a tab-delimited stats file containing information about
+    taxonomic signatures and their lengths.
+    
+    Parameters:
+        db_stats_file (str): Path to the database stats file
+        
+    Returns:
+        dict: Dictionary with taxids as keys and signature lengths as values
+        
+    Note:
+        The input stats file is an 8-column tab-delimited file with:
+        1. Rank
+        2. Name
+        3. Taxid
+        4. Superkingdom
+        5. NumOfSeq
+        6. Max
+        7. Min
+        8. TotalLength
     """
     db_stats = {}
 
@@ -655,6 +959,25 @@ def loadDatabaseStats(db_stats_file):
     return db_stats
 
 def print_message(msg, silent, start, logfile, errorout=0):
+    """
+    Print and log a timestamped message.
+    
+    Writes a message to the log file and optionally to stderr. Can also
+    terminate the program with an error message.
+    
+    Parameters:
+        msg (str): Message to print
+        silent (bool): If True, suppress output to stderr
+        start (float): Start time for timestamp calculation
+        logfile (str): Path to the log file
+        errorout (int): If non-zero, exit with error after printing
+        
+    Returns:
+        None
+        
+    Raises:
+        SystemExit: If errorout is non-zero
+    """
     message = "[%s] %s\n" % (time_spend(start), msg)
 
     with open( logfile, "a" ) as f:
@@ -667,6 +990,9 @@ def print_message(msg, silent, start, logfile, errorout=0):
         sys.stderr.write( message )
 
 def main(args):
+    """
+    Main execution function for GOTTCHA2.
+    """
     global argvs
     global logfile
     global begin_t
@@ -676,7 +1002,6 @@ def main(args):
     sam_fp   = argvs.sam[0] if argvs.sam else ""
     samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
     logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
-    lines_per_process = 10000
 
     if argvs.debug:
         logging.basicConfig(
@@ -694,8 +1019,9 @@ def main(args):
     #dependency check
     if sys.version_info < (3,6):
         sys.exit("[ERROR] Python 3.6 or above is required.")
+    
     dependency_check("minimap2")
-    dependency_check("gawk")
+    # dependency_check("gawk")
 
     #prepare output object
     argvs.relAbu = argvs.relAbu.upper()
@@ -759,6 +1085,7 @@ def main(args):
         sys.exit( "[%s] ERROR: %s not found.\n" % (time_spend(begin_t), argvs.database+".stats") )
     print_message( "Done.", argvs.silent, begin_t, logfile )
 
+    #main process
     if argvs.input:
         print_message( "Running read-mapping...", argvs.silent, begin_t, logfile )
         exitcode, cmd, msg = readMapping( argvs.input, argvs.database, argvs.threads, argvs.mismatch, argvs.presetx, samfile, logfile, argvs.nanopore )
@@ -770,16 +1097,15 @@ def main(args):
             print_message( "Done mapping reads to %s signature database." % argvs.dbLevel, argvs.silent, begin_t, logfile )
             print_message( "Mapped SAM file saved to %s." % samfile, argvs.silent, begin_t, logfile )
             sam_fp = open( samfile, "r" )
-
     if argvs.extract:
         extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads, argvs.matchFactor )
         print_message( "Done extracting reads to %s." % outfile, argvs.silent, begin_t, logfile )
     else:
-        (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, lines_per_process, argvs.matchFactor)
+        (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, argvs.matchFactor)
         print_message( "Done processing SAM file. %s qualified mapped reads." % mapped_r_cnt, argvs.silent, begin_t, logfile )
 
         if mapped_r_cnt:
-            res_df = roll_up_taxonomy(res, db_stats, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
+            res_df = aggregate_taxonomy(res, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
             print_message( "Done taxonomy rolling up.", argvs.silent, begin_t, logfile )
 
             if not len(res_df):

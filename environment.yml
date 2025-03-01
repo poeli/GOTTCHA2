@@ -9,4 +9,3 @@ dependencies:
   - biom-format>=2.1.7
   - requests
   - tqdm
-  - gawk
