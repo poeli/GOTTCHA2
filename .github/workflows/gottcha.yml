@@ -25,8 +25,10 @@ jobs:
           environment-file: GOTTCHA2/environment.yml
           activate-environment: gottcha
 
-      - name: Install Setuptools
-        run: conda install -n gottcha setuptools
+      - name: Install Setuptools and Testing Dependencies
+        run: |
+          conda install -n gottcha setuptools
+          pip install pytest
 
       - name: Check Install
         run: |
@@ -48,6 +50,6 @@ jobs:
 
       - name: Run unit tests
         run: |
-          cd GOTTCHA2/test
-          python -m unittest test_gottcha2.py
-          python -m unittest test_taxonomy.py
+          cd GOTTCHA2
+          ls -la test/
+          python -m unittest discover -v -s test
