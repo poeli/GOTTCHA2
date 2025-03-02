@@ -51,4 +51,5 @@ jobs:
       - name: Run unit tests
         run: |
           cd GOTTCHA2
+          ls -la test/
           python -m unittest discover -v -s test
