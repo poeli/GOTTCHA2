@@ -14,9 +14,9 @@ sys.path.insert(0, str(project_root))
 
 # Import the module - adjust if needed based on project structure
 try:
-    from src.gottcha2 import taxonomy as gt
+    from gottcha.scripts import taxonomy as gt
 except ImportError:
-    import src.gottcha2.taxonomy as gt
+    import gottcha.scripts.taxonomy as gt
 
 class TestTaxonomy(unittest.TestCase):
     """Tests for taxonomy.py functions."""
@@ -222,12 +222,12 @@ class TestTaxonomy(unittest.TestCase):
             f.write("accession\taccession.version\ttaxid\tgi\n")
             f.write("NC_000913\tNC_000913.3\t562\t0\n")  # E. coli
         
-        with patch('src.gottcha2.taxonomy.acc2taxid_raw', return_value="562"):
+        with patch('gottcha.scripts.taxonomy.acc2taxid_raw', return_value="562"):
             result = gt.acc2taxid("NC_000913")
             self.assertEqual(result, "562")
         
         # Test non-existent accession
-        with patch('src.gottcha2.taxonomy.acc2taxid_raw', return_value=""):
+        with patch('gottcha.scripts.taxonomy.acc2taxid_raw', return_value=""):
             result = gt.acc2taxid("NONEXISTENT")
             self.assertEqual(result, "")
     
@@ -238,7 +238,7 @@ class TestTaxonomy(unittest.TestCase):
         self.assertEqual(lca, "562")  # Should be E. coli
         
         # Test LCA of different species in same genus
-        with patch('src.gottcha2.taxonomy.taxid2lineageDICT', side_effect=[
+        with patch('gottcha.scripts.taxonomy.taxid2lineageDICT', side_effect=[
             # Mocked lineage for 562 (E. coli)
             {"species": {"taxid": "562"}, "genus": {"taxid": "561"}},
             # Mocked lineage for different species in same genus

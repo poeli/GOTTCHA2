@@ -13,7 +13,7 @@ project_root = current_dir.parent
 sys.path.insert(0, str(project_root))
 
 # Import the module
-import src.gottcha2.gottcha2 as gottcha2
+import gottcha.scripts.gottcha2 as gottcha2
 
 class TestGottcha2Integration(unittest.TestCase):
     """Integration tests for GOTTCHA2."""
@@ -34,7 +34,7 @@ class TestGottcha2Integration(unittest.TestCase):
         """Clean up after tests."""
         shutil.rmtree(self.test_dir)
     
-    @patch('src.gottcha2.gottcha2.Pool')
+    @patch('gottcha.scripts.gottcha2.Pool')
     def test_process_sam_file(self, mock_pool):
         """Test processing of SAM file."""
         # Mock the Pool and its return values
@@ -76,13 +76,13 @@ class TestGottcha2Integration(unittest.TestCase):
     
     def test_is_descendant(self):
         """Test checking if a taxid is descendant of another."""
-        with patch('src.gottcha2.gottcha2.gt.taxid2fullLineage', return_value='|1|2|1234|5678|'):
+        with patch('gottcha.scripts.gottcha2.gt.taxid2fullLineage', return_value='|1|2|1234|5678|'):
             # Test where target is in lineage
             self.assertTrue(gottcha2.is_descendant('5678', '1234'))
             # Test where target is not in lineage
             self.assertFalse(gottcha2.is_descendant('5678', '9999'))
 
-    @patch('src.gottcha2.gottcha2.pd.DataFrame')
+    @patch('gottcha.scripts.gottcha2.pd.DataFrame')
     def test_group_refs_to_strains(self, mock_df):
         """Test grouping references by strain."""
         # Mock the pandas operations

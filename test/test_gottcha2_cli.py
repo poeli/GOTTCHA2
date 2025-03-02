@@ -13,7 +13,7 @@ project_root = current_dir.parent
 sys.path.insert(0, str(project_root))
 
 # Import the module
-import src.gottcha2.gottcha2 as gottcha2
+import gottcha.scripts.gottcha2 as gottcha2
 
 class TestGottcha2CLI(unittest.TestCase):
     """Test command-line interface functionality of GOTTCHA2."""
@@ -86,7 +86,7 @@ class TestGottcha2CLI(unittest.TestCase):
                 gottcha2.dependency_check("nonexistent_command")
             self.assertIn("[ERROR]", mock_stderr.getvalue())
     
-    @patch('src.gottcha2.gottcha2.subprocess.Popen')
+    @patch('gottcha.scripts.gottcha2.subprocess.Popen')
     def test_readMapping(self, mock_popen):
         """Test read mapping function."""
         # Mock the subprocess.Popen
