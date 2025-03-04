@@ -111,7 +111,7 @@ class TestGottcha2CLI(unittest.TestCase):
         
         # Test the function
         exit_code, cmd, errs = gottcha2.readMapping(
-            reads, self.db_path, 1, 10, 'sr', samfile, logfile, False
+            reads, self.db_path, 1, 10, 'sr', samfile, logfile
         )
         
         # Check the results
