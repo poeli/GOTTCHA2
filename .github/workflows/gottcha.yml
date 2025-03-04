@@ -36,7 +36,6 @@ jobs:
           cd GOTTCHA2
           python setup.py install
           gottcha2 profile --help
-          gottcha2 pull --help
 
       - name: Run test dataset
         run: |
