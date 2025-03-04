@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 
 from setuptools import setup, find_packages
-import os, subprocess, sys
-from gottcha import __version__ as version
+from gottcha.scripts.gottcha2 import __version__ as version
 
 with open('README.md', 'r') as fh:
     long_description = fh.read()
@@ -18,7 +17,7 @@ setup(
     url = "https://github.com/poeli/GOTTCHA2",
     packages=['gottcha'],
     package_dir={'GOTTCHA2': './'},
-    install_requires=['numpy','pandas' ,'requests','tdqm','setuptools'],
+    install_requires=['numpy','pandas','requests','setuptools'],
     long_description=long_description,
     entry_points={'console_scripts': ['gottcha2 = cmd:gottcha2_command',] },
     scripts=['gottcha/scripts/gottcha2.py', 'gottcha/scripts/pull_database.py', 'gottcha/scripts/taxonomy.py', 'gottcha/scripts/cmd.py']
