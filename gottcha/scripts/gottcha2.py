@@ -1119,6 +1119,7 @@ def main(args):
     else:
         (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, argvs.matchFactor)
         print_message( f"Done processing SAM file. {mapped_r_cnt} qualified mapped reads.", argvs.silent, begin_t, logfile )
+        gc.collect()
 
         if mapped_r_cnt:
             res_df = aggregate_taxonomy(res, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
