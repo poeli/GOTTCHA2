@@ -15,6 +15,8 @@ Usage:
 Commands:
     profile    Taxonomic profiling of metagenomic reads
               (Map reads to signature database and classify)
+        
+    version    Display version information
     
 Examples:
     gottcha2 profile -i reads.fastq -d database/db_prefix
@@ -30,8 +32,10 @@ def gottcha2_command():
         usage()
     elif args[0] == "profile":
         gottcha2.main(args[1:])
-    # elif args[0] == "pull":
-    #     pull_database.main(args[1:])
+    elif args[0] == "pull":
+        pull_database.main(args[1:])
+    elif args[0] == "version":
+        print(f"{gottcha2.__version__}")
     else:
         print(f"Error: '{args[0]}' is not a valid command")
         usage()

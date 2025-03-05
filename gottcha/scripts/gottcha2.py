@@ -373,7 +373,8 @@ def parse(line, matchFactor):
     (acc, rstart, rend, taxid) = ref.split('|')
     rlen = int(rend)-int(rstart)+1
 
-    primary_alignment_flag=False if int(temp[1]) & 256 else True
+    # check if this is a primary alignment 256=secondary, 2048=supplementary
+    primary_alignment_flag=False if int(temp[1]) & 2304 else True
 
     # the alignment region should cover at least matchFactor(proportion) of the read or signature fragment
     valid_flag = True # default to True
@@ -652,15 +653,15 @@ def group_refs_to_strains(r):
 
     # rename columns
     str_df.rename(columns={
-        "MB":  "TOTAL_BP_MAPPED",
-        "MR":  "READ_COUNT",
-        "NM":  "TOTAL_BP_MISMATCH",
-        "LL":  "LINEAR_LEN",
-        "RLEN":"MAPPED_SIG_LENGTH",
-        "TS":  "TOL_SIG_LENGTH",
-        "RD":  "ROLLUP_DOC",
-        "bDOC":"BEST_DOC",
-        "bLC": "BEST_LINEAR_COV"
+        "MB":   "TOTAL_BP_MAPPED",
+        "MR":   "READ_COUNT",
+        "NM":   "TOTAL_BP_MISMATCH",
+        "LL":   "LINEAR_LEN",
+        "RLEN": "MAPPED_SIG_LENGTH",
+        "TS":   "TOL_SIG_LENGTH",
+        "RD":   "ROLLUP_DOC",
+        "bDOC": "BEST_DOC",
+        "bLC":  "BEST_LINEAR_COV"
     }, inplace=True)
 
     str_df['ZSCORE'] = str_df.apply(lambda x: pile_lvl_zscore(x.TOTAL_BP_MAPPED, x.TOL_SIG_LENGTH, x.LINEAR_LEN), axis=1)
