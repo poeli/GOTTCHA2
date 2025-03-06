@@ -1,12 +1,30 @@
-
 #!/usr/bin/env python3
 import pull_database
 import gottcha2
 import sys
-import io
+
 def usage():
-    print("usage: gottcha2 profile --help\ngottcha2 pull --help")
-    sys.exit()
+    """Display usage information for GOTTCHA2 command-line tool."""
+    version = gottcha2.__version__
+    print(f"""
+GOTTCHA2 - Genomic Origin Through Taxonomic CHAllenge v{version}
+
+Usage:
+    gottcha2 <command> [options]
+
+Commands:
+    profile    Taxonomic profiling of metagenomic reads
+              (Map reads to signature database and classify)
+        
+    version    Display version information
+    
+Examples:
+    gottcha2 profile -i reads.fastq -d database/db_prefix
+
+For detailed help on a specific command:
+    gottcha2 <command> --help
+""")
+    sys.exit(1)
 
 def gottcha2_command():
     args = sys.argv[1:]
@@ -16,6 +34,8 @@ def gottcha2_command():
         gottcha2.main(args[1:])
     elif args[0] == "pull":
         pull_database.main(args[1:])
+    elif args[0] == "version":
+        print(f"{gottcha2.__version__}")
     else:
-        print("%s is not a valid argument", args[1])
+        print(f"Error: '{args[0]}' is not a valid command")
         usage()

@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.10"
+__version__   = "2.1.8.11"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -29,7 +29,6 @@ import sys, os, time, subprocess
 import pandas as pd
 import gc
 from re import search,findall
-from re import compile as recompile
 from multiprocessing import Pool
 from itertools import chain
 import math
@@ -41,8 +40,6 @@ try:
 except ImportError:
     # Fall back to direct import (for script usage)
     import taxonomy as gt
-
-logger = logging.getLogger()
 
 def parse_params(ver, args):
     """
@@ -76,18 +73,18 @@ def parse_params(ver, args):
     eg.add_argument( '-s','--sam', metavar='[SAMFILE]', nargs=1, type=ap.FileType('r'),
                     help="Specify the input SAM file. Use '-' for standard input.")
 
-    p.add_argument( '-d','--database', metavar='[MINIMAP2_INDEX]', type=str, default=None,
-                    help="The path of signature database. The database can be in FASTA format or minimap2 index (5 files).")
+    p.add_argument( '-d','--database', metavar='[GOTTCHA2_db]', type=str, default=None,
+                    help="The path and prefix of the GOTTCHA2 database.")
 
     p.add_argument( '-l','--dbLevel', metavar='[LEVEL]', type=str, default='',
                     choices=['superkingdom', 'phylum', 'class', 'order', 'family', 'genus', 'species', 'strain'],
                     help="""Specify the taxonomic level of the input database. You can choose one rank from "superkingdom", "phylum", "class", "order", "family", "genus", "species" and "strain". The value will be auto-detected if the input database ended with levels (e.g. GOTTCHA_db.species).""")
 
-    p.add_argument( '-ti','--taxInfo', metavar='[FILE]', type=str, default='',
-                    help="""Specify the path of taxonomy information directory (taxonomy_db). GOTTCHA2 will try to locate this file when user doesn't specify a path. If '--database' option is used, the program will try to find this file in the directory of specified database. If not, the 'database' directory under the location of gottcha.py will be used as default.""")
+    p.add_argument( '-ti','--taxInfo', metavar='[PATH]', type=str, default='',
+                    help="""Specify the path to the taxonomy information directory or file. The program will attempt to locate a matching .tax.tsv file for the specified database. If it cannot find one, it will use the ‘taxonomy_db’ directory located in the same directory as the executable by default.""")
 
     p.add_argument( '-np','--nanopore', action="store_true",
-                    help="Adjust options for Nanopore reads. The '--mismatch' option will be ignored. [-xm map-ont -mr 1 -mf 0]")
+                    help="Adjust options for Nanopore reads. It will overwrite the other options to '-xm map-ont -mr 1 -mf 0 -mz 0'.")
 
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
                     help="Mismatch penalty for the aligner. [default: 10]")
@@ -360,8 +357,8 @@ def parse(line, matchFactor):
     
     Example:
         SAM format example:
-        read1   0   test    11  0   5S10M3S *   0   0   GGGGGCCCCCCCCCCGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
-        read2   16  test    11  0   3S10M5S *   0   0   GGGCCCCCCCCCCGGGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
+        read1   0   ABC|1|100|GCF_12345|    11  0   5S10M3S *   0   0   GGGGGCCCCCCCCCCGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
+        read2   16  ABC|1|100|GCF_12345|    11  0   3S10M5S *   0   0   GGGCCCCCCCCCCGGGGG  HHHHHHHHHHHHHHHHHH  NM:i:0  MD:Z:10 AS:i:10 XS:i:0
     """
     temp = line.split('\t')
     name = temp[0]
@@ -376,8 +373,17 @@ def parse(line, matchFactor):
     (acc, rstart, rend, taxid) = ref.split('|')
     rlen = int(rend)-int(rstart)+1
 
-    primary_alignment_flag=False if int(temp[1]) & 256 else True
-    valid_flag = True if (int(match_len.group(1)) >= rlen * matchFactor) or (int(match_len.group(1)) >= len(temp[9])*matchFactor) else False
+    # check if this is a primary alignment 256=secondary, 2048=supplementary
+    primary_alignment_flag=False if int(temp[1]) & 2304 else True
+
+    # the alignment region should cover at least matchFactor(proportion) of the read or signature fragment
+    valid_flag = True # default to True
+
+    if matchFactor > 0:
+        if (int(match_len.group(1)) >= rlen * matchFactor) or (int(match_len.group(1)) >= len(temp[9])*matchFactor):
+            valid_flag = True
+        else:
+            valid_flag = False
 
     return ref, (start, end), int(mismatch_len.group(1)), name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_flag
 
@@ -456,10 +462,7 @@ def process_sam_file(sam_fn, numthreads, matchFactor):
     result = gt._autoVivification()
     mapped_reads = 0
 
-    #clean memory
-    gc.collect()
-
-    print_message( "Parsing SAM files with %s subprocesses..."%numthreads, argvs.silent, begin_t, logfile )
+    print_message( f"Parsing SAM files with {numthreads} subprocesses...", argvs.silent, begin_t, logfile )
     pool = Pool(processes=numthreads)
     jobs = []
     results = []
@@ -473,7 +476,7 @@ def process_sam_file(sam_fn, numthreads, matchFactor):
     for job in jobs:
         results.append( job.get() )
         cnt+=1
-        if argvs.debug: print_message( "[DEBUG] Progress: %s/%s (%.1f%%) chunks done."%(cnt, tol_jobs, cnt/tol_jobs*100), argvs.silent, begin_t, logfile )
+        if argvs.debug: print_message( f"[DEBUG] Progress: {cnt}/{tol_jobs} ({cnt/tol_jobs*100:.1f}) chunks done.", argvs.silent, begin_t, logfile )
 
     #clean up
     pool.close()
@@ -650,15 +653,15 @@ def group_refs_to_strains(r):
 
     # rename columns
     str_df.rename(columns={
-        "MB":  "TOTAL_BP_MAPPED",
-        "MR":  "READ_COUNT",
-        "NM":  "TOTAL_BP_MISMATCH",
-        "LL":  "LINEAR_LEN",
-        "RLEN":"MAPPED_SIG_LENGTH",
-        "TS":  "TOL_SIG_LENGTH",
-        "RD":  "ROLLUP_DOC",
-        "bDOC":"BEST_DOC",
-        "bLC": "BEST_LINEAR_COV"
+        "MB":   "TOTAL_BP_MAPPED",
+        "MR":   "READ_COUNT",
+        "NM":   "TOTAL_BP_MISMATCH",
+        "LL":   "LINEAR_LEN",
+        "RLEN": "MAPPED_SIG_LENGTH",
+        "TS":   "TOL_SIG_LENGTH",
+        "RD":   "ROLLUP_DOC",
+        "bDOC": "BEST_DOC",
+        "bLC":  "BEST_LINEAR_COV"
     }, inplace=True)
 
     str_df['ZSCORE'] = str_df.apply(lambda x: pile_lvl_zscore(x.TOTAL_BP_MAPPED, x.TOL_SIG_LENGTH, x.LINEAR_LEN), axis=1)
@@ -785,6 +788,14 @@ def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
             return (lin_doc-avg_doc)/sd
     except:
         return 0
+    
+def estimate_ani(tol_bp, tol_mismatch):
+    """
+    """
+    try:
+        return (1 - tol_mismatch/tol_bp)
+    except:
+        return 0
 
 def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     """
@@ -879,7 +890,7 @@ def generaete_lineage_file(target_df, o, tg_rank):
 
     return True
 
-def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanopore):
+def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
     """
     Map reads to the reference database using minimap2.
     
@@ -906,8 +917,10 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile, nanop
     """
     input_file = " ".join([x.name for x in reads])
 
-    sr_opts = f"-x {presetx} -k24 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no --sam-hit-only -n1 -p1 -m24 -s30"
-    if nanopore:
+    # Minimap2 options, presetx is 'sr' by default
+    sr_opts = f"--sr --frag=yes -b0 -r100 -f1000,5000 -n2 -m20 -s40 -g100 -2K50m -k24 -w12 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no --sam-hit-only"
+    
+    if presetx != 'sr':
         sr_opts = f"-x {presetx} -N20 --secondary=no --sam-hit-only -a"
 
     bash_cmd   = f"set -o pipefail; set -x;"
@@ -1050,30 +1063,31 @@ def main(args):
 
         out_fp = open(outfile, 'w')
 
-    print_message( "Starting GOTTCHA (v%s)" % __version__, argvs.silent, begin_t, logfile )
-    print_message( "Arguments and dependencies checked:", argvs.silent, begin_t, logfile )
+    print_message( f"Starting GOTTCHA (v{__version__})", argvs.silent, begin_t, logfile )
+    print_message( f"Arguments and dependencies checked:", argvs.silent, begin_t, logfile )
     if argvs.input:
-        print_message( "    Input reads      : %s" % [x.name for x in argvs.input],     argvs.silent, begin_t, logfile )
-    print_message( "    Input SAM file   : %s" % samfile,         argvs.silent, begin_t, logfile )
-    print_message( "    Database         : %s" % argvs.database,  argvs.silent, begin_t, logfile )
-    print_message( "    Database level   : %s" % argvs.dbLevel,   argvs.silent, begin_t, logfile )
-    print_message( "    Mismatch penalty : %s" % argvs.mismatch,  argvs.silent, begin_t, logfile )
-    print_message( "    Abundance        : %s" % argvs.relAbu,    argvs.silent, begin_t, logfile )
-    print_message( "    Output path      : %s" % argvs.outdir,    argvs.silent, begin_t, logfile )
-    print_message( "    Prefix           : %s" % argvs.prefix,    argvs.silent, begin_t, logfile )
-    print_message( "    Extract taxid    : %s" % argvs.extract,   argvs.silent, begin_t, logfile )
-    print_message( "    Threads          : %d" % argvs.threads,   argvs.silent, begin_t, logfile )
-    print_message( "    Minimal L_DOC    : %s" % argvs.minCov,    argvs.silent, begin_t, logfile )
-    print_message( "    Minimal L_LEN    : %s" % argvs.minLen,    argvs.silent, begin_t, logfile )
-    print_message( "    Minimal reads    : %s" % argvs.minReads,  argvs.silent, begin_t, logfile )
-    print_message( "    Minimal mFactor  : %s" % argvs.matchFactor, argvs.silent, begin_t, logfile )
-    print_message( "    Maximal zScore   : %s" % argvs.maxZscore, argvs.silent, begin_t, logfile )
+        print_message( f"    Input reads      : {[x.name for x in argvs.input]}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Input SAM file   : {samfile}",           argvs.silent, begin_t, logfile )
+    print_message( f"    Database         : {argvs.database}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Database level   : {argvs.dbLevel}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Mismatch penalty : {argvs.mismatch}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Abundance        : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Output path      : {argvs.outdir}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Prefix           : {argvs.prefix}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Extract taxid    : {argvs.extract}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Threads          : {argvs.threads}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal L_DOC    : {argvs.minCov}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal L_LEN    : {argvs.minLen}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal reads    : {argvs.minReads}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal mFactor  : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
+    print_message( f"    Maximal zScore   : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
     custom_taxa_tsv = None
     if os.path.isfile( argvs.database + ".tax.tsv" ):
         custom_taxa_tsv = argvs.database+".tax.tsv"
+    
     gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
     print_message( "Done.", argvs.silent, begin_t, logfile )
 
@@ -1088,21 +1102,24 @@ def main(args):
     #main process
     if argvs.input:
         print_message( "Running read-mapping...", argvs.silent, begin_t, logfile )
-        exitcode, cmd, msg = readMapping( argvs.input, argvs.database, argvs.threads, argvs.mismatch, argvs.presetx, samfile, logfile, argvs.nanopore )
-        print_message( "Logfile saved to %s." % logfile, argvs.silent, begin_t, logfile )
-        print_message( "COMMAND: %s" % cmd, argvs.silent, begin_t, logfile )
+        exitcode, cmd, msg = readMapping( argvs.input, argvs.database, argvs.threads, argvs.mismatch, argvs.presetx, samfile, logfile)
+        gc.collect()
+        print_message( f"Logfile saved to {logfile}.", argvs.silent, begin_t, logfile )
+        print_message( f"COMMAND: {cmd}", argvs.silent, begin_t, logfile )
         if exitcode != 0:
             sys.exit( "[%s] ERROR: error occurred while running read mapping (exit: %s, message: %s).\n" % (time_spend(begin_t), exitcode, msg) )
         else:
-            print_message( "Done mapping reads to %s signature database." % argvs.dbLevel, argvs.silent, begin_t, logfile )
-            print_message( "Mapped SAM file saved to %s." % samfile, argvs.silent, begin_t, logfile )
+            print_message( f"Done mapping reads to {argvs.dbLevel} signature database.", argvs.silent, begin_t, logfile )
+            print_message( f"Mapped SAM file saved to {samfile}.", argvs.silent, begin_t, logfile )
             sam_fp = open( samfile, "r" )
+    
     if argvs.extract:
         extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads, argvs.matchFactor )
-        print_message( "Done extracting reads to %s." % outfile, argvs.silent, begin_t, logfile )
+        print_message( f"Done extracting reads to {outfile}.", argvs.silent, begin_t, logfile )
     else:
         (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, argvs.matchFactor)
-        print_message( "Done processing SAM file. %s qualified mapped reads." % mapped_r_cnt, argvs.silent, begin_t, logfile )
+        print_message( f"Done processing SAM file. {mapped_r_cnt} qualified mapped reads.", argvs.silent, begin_t, logfile )
+        gc.collect()
 
         if mapped_r_cnt:
             res_df = aggregate_taxonomy(res, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
@@ -1123,7 +1140,7 @@ def main(args):
                 if tax_num:
                      generaete_lineage_file(target_df, outfile_lineage, argvs.dbLevel)
 
-                print_message( "%s qualified %s profiled; Results saved to %s." %(tax_num, argvs.dbLevel, outfile), argvs.silent, begin_t, logfile )
+                print_message( f"{tax_num} qualified {argvs.dbLevel} profiled; Results saved to {outfile}.", argvs.silent, begin_t, logfile )
         else:
             print_message( "GOTTCHA2 stopped.", argvs.silent, begin_t, logfile )
 
