@@ -131,6 +131,9 @@ def parse_params(ver, args):
     p.add_argument( '-nc','--noCutoff', action="store_true",
                     help="Remove all cutoffs. This option is equivalent to use. [-mc 0 -mr 0 -ml 0 -mf 0 -mz 0]")
 
+    p.add_argument( '-sm','--skipRemoveMultiple', action="store_true",
+                    help="This option can be use to skip the step to removal of multiple hits If you are sure there are no multiple hits for the same reads in the SAM file.")
+
     p.add_argument( '-c','--stdout', action="store_true",
                     help="Write on standard output.")
 
@@ -139,6 +142,9 @@ def parse_params(ver, args):
 
     p.add_argument( '--silent', action="store_true",
                     help="Disable all messages.")
+
+    p.add_argument( '--verbose', action="store_true",
+                    help="Provide verbose messages.")
 
     p.add_argument( '--debug', action="store_true",
                     help="Debug mode. Provide verbose running messages and keep all temporary files.")
@@ -583,7 +589,6 @@ def ReadExtractWorker(filename, chunkStart, chunkSize, taxid, matchFactor):
         if not (pri_aln_flag and valid_flag): continue
 
         acc, start, stop, t = ref.split('|')
-        fullLineage = gt.taxid2fullLineage(t)
 
         if int(flag) & 16:
             g = findall(r'\d+\w', cigr)
@@ -592,7 +597,7 @@ def ReadExtractWorker(filename, chunkStart, chunkSize, taxid, matchFactor):
             rq = rq[::-1]
 
         if is_descendant( t, taxid ):
-            readstr += "@%s %s:%s..%s %s\n%s\n+\n%s\n" % (rname, ref, region[0], region[1], cigr, rseq, rq)
+            readstr += f"@{rname} {ref}:{region[0]}..{region[1]} {cigr} NM:i:{nm}\n{rseq}\n+\n{rq}\n"
     return readstr
 
 def seqReverseComplement(seq):
@@ -917,7 +922,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
     """
     input_file = " ".join([x.name for x in reads])
 
-    # Minimap2 options, presetx is 'sr' by default
+    # Minimap2 options for short reads: the options here is essentailly the -x 'sr' equivalent with some modifications on scoring
     sr_opts = f"--sr --frag=yes -b0 -r100 -f1000,5000 -n2 -m20 -s40 -g100 -2K50m -k24 -w12 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no --sam-hit-only"
     
     if presetx != 'sr':
@@ -928,11 +933,81 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
     filter_cmd = f"grep -v '^@'"
     cmd        = f"{bash_cmd} {mm2_cmd} 2>> {logfile} | {filter_cmd} > {samfile}"
 
+    logging.info(f"Readmapping command: {mm2_cmd}")
+
     proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)
     outs, errs = proc.communicate()
     exitcode = proc.poll()
 
     return exitcode, mm2_cmd, errs
+
+def remove_multiple_hits(samfile):
+    """
+    Removing multiple hits from the SAM file by keeping only the best alignment for each read.
+
+    Parameters:
+        samfile (str): Path to the SAM file
+
+    Returns:
+        str: Path to the temporary SAM file with only the best alignments
+    """
+    logging.info(f'Loading the sam file...')
+
+    df = pd.read_csv(samfile,
+                sep='\t',
+                header=None,
+                usecols=[0, 1, 13],
+                names=['QNAME', 'FLAG', 'AS'],
+                converters={
+                    'AS': lambda x: x.replace('AS:i:', '')
+                },
+                dtype={'QNAME': 'str', 'FLAG': 'uint16'}
+    )
+
+    logging.info(f'Total alignments in SAM file: {len(df)}')
+
+    df[['AS']] = df[['AS']].astype('uint16')
+
+    logging.info(f'Filtering non-primary hits...')
+
+    # for each row, if the flag bitwise AND with 256 (not primary alignment) or 2048 (supplementary), then remove them from the df
+    df = df[~(df['FLAG'] & (256|2048)).astype(bool)]
+
+    logging.info(f'After removing non-parmary hits: {len(df)}')
+
+    logging.info(f'Identifying top score hits...')
+
+    # if FLAG bitwise AND with 128 (second in pair), append '/2' to the QNAME
+    idx = (df['FLAG'] & 128).astype(bool)
+    df.loc[idx, 'QNAME'] = df.loc[idx, 'QNAME'] + '/2'
+
+    # get the index with the best alignment score for each read
+    idxmax = df.groupby('QNAME')['AS'].idxmax()
+
+    logging.info(f'Total top score hits: {len(idxmax)}')
+
+    # Create a set of indices for faster lookup
+    idxmax_set = set(idxmax.values)
+
+    del idxmax
+
+    logging.info(f'Writing top score hits...')
+
+    # Use a buffered approach for better I/O performance
+    buffer_size = 100000  # Number of lines to process at once
+
+    with open(f'{samfile}.temp', 'w') as fout, open(samfile, 'r') as fin:
+        for idx, line in enumerate(fin):
+            if not idx%100000:
+                logging.debug(f'Processed {idx} lines...')
+            
+            if idx in idxmax_set:
+                fout.write(line)
+
+    logging.info(f'Done writing hits.')
+
+    return f'{samfile}.temp'
+
 
 def loadDatabaseStats(db_stats_file):
     """
@@ -1016,18 +1091,20 @@ def main(args):
     samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
     logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
 
+    logging_level = logging.WARNING
+
     if argvs.debug:
-        logging.basicConfig(
-            level=logging.DEBUG,
-            format='%(asctime)s [%(levelname)s] %(module)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M',
-        )
-    else:
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s [%(levelname)s] %(module)s: %(message)s',
-            datefmt='%Y-%m-%d %H:%M',
-        )
+        logging_level = logging.DEBUG
+    elif argvs.silent:
+        logging_level = logging.FATAL
+    elif argvs.verbose:
+        logging_level = logging.INFO
+
+    logging.basicConfig(
+        level=logging_level,
+        format='%(asctime)s [%(levelname)s] %(module)s: %(message)s',
+        datefmt='%Y-%m-%d %H:%M',
+    )
 
     #dependency check
     if sys.version_info < (3,6):
@@ -1086,7 +1163,7 @@ def main(args):
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
     custom_taxa_tsv = None
     if os.path.isfile( argvs.database + ".tax.tsv" ):
-        custom_taxa_tsv = argvs.database+".tax.tsv"
+        custom_taxa_tsv = argvs.database + ".tax.tsv"
     
     gt.loadTaxonomy( argvs.taxInfo, custom_taxa_tsv )
     print_message( "Done.", argvs.silent, begin_t, logfile )
@@ -1106,19 +1183,30 @@ def main(args):
         gc.collect()
         print_message( f"Logfile saved to {logfile}.", argvs.silent, begin_t, logfile )
         print_message( f"COMMAND: {cmd}", argvs.silent, begin_t, logfile )
+
         if exitcode != 0:
             sys.exit( "[%s] ERROR: error occurred while running read mapping (exit: %s, message: %s).\n" % (time_spend(begin_t), exitcode, msg) )
         else:
             print_message( f"Done mapping reads to {argvs.dbLevel} signature database.", argvs.silent, begin_t, logfile )
             print_message( f"Mapped SAM file saved to {samfile}.", argvs.silent, begin_t, logfile )
             sam_fp = open( samfile, "r" )
-    
+
+    # remove multiple hits
+    if not argvs.skipRemoveMultiple:
+        # remove multiple hits from the SAM file
+        print_message( "Removing multiple hits from SAM file...", argvs.silent, begin_t, logfile )
+        samfile_temp = remove_multiple_hits(samfile)
+        os.rename(samfile_temp, samfile)
+        gc.collect()
+
     if argvs.extract:
+        print_message( f"Extracting reads mapped to taxid: {argvs.extract}...", argvs.silent, begin_t, logfile )
         extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads, argvs.matchFactor )
         print_message( f"Done extracting reads to {outfile}.", argvs.silent, begin_t, logfile )
     else:
+        print_message( "Loading SAM file...", argvs.silent, begin_t, logfile )
         (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, argvs.matchFactor)
-        print_message( f"Done processing SAM file. {mapped_r_cnt} qualified mapped reads.", argvs.silent, begin_t, logfile )
+        print_message( f"Done processing SAM file. {mapped_r_cnt} qualified mapped reads loaded.", argvs.silent, begin_t, logfile )
         gc.collect()
 
         if mapped_r_cnt:

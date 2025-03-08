@@ -15,11 +15,15 @@ Usage:
 Commands:
     profile    Taxonomic profiling of metagenomic reads
               (Map reads to signature database and classify)
-        
+
+    extract    Extract reads of a specific taxon from profiled results
+
     version    Display version information
     
 Examples:
     gottcha2 profile -i reads.fastq -d database/db_prefix
+
+    gottcha2 extract -s prefix.sam -d database/db_prefix -e 666
 
 For detailed help on a specific command:
     gottcha2 <command> --help
@@ -36,6 +40,9 @@ def gottcha2_command():
         pull_database.main(args[1:])
     elif args[0] == "version":
         print(f"{gottcha2.__version__}")
+    elif args[0] == "extract":
+        gottcha2.main(args[1:])
+
     else:
         print(f"Error: '{args[0]}' is not a valid command")
         usage()
