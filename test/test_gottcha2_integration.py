@@ -23,12 +23,18 @@ class TestGottcha2Integration(unittest.TestCase):
         self.test_dir = tempfile.mkdtemp()
         self.test_data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'test_data')
         
-        # Create a simple mock SAM file
+        # Create a mock SAM file with proper SAM format
         self.sam_file = os.path.join(self.test_dir, "test.sam")
         with open(self.sam_file, 'w') as f:
-            f.write("read1\t0\tABC|1|100|12345\t11\t0\t5S10M3S\t*\t0\t0\tGGGGGCCCCCCCCCGGG\tHHHHHHHHHHHHHHHHH\tNM:i:0\n")
-            f.write("read2\t0\tABC|1|100|12345\t21\t0\t5S10M3S\t*\t0\t0\tGGGGGCCCCCCCCCGGG\tHHHHHHHHHHHHHHHHH\tNM:i:0\n")
-            f.write("read3\t0\tXYZ|1|100|67890\t31\t0\t5S10M3S\t*\t0\t0\tGGGGGCCCCCCCCCGGG\tHHHHHHHHHHHHHHHHH\tNM:i:0\n")
+            # Header line (required for SAM format)
+            f.write("@HD\tVN:1.0\n")
+            # Sequence dictionary lines
+            f.write("@SQ\tSN:ABC|1|100|12345\tLN:100\n")
+            f.write("@SQ\tSN:XYZ|1|100|67890\tLN:100\n")
+            # Actual alignment records
+            f.write("read1\t0\tABC|1|100|12345\t11\t60\t5S10M3S\t*\t0\t0\tGGGGGCCCCCCCCCGGG\tHHHHHHHHHHHHHHHHH\tNM:i:0\tAS:i:10\tXS:i:0\n")
+            f.write("read2\t0\tABC|1|100|12345\t21\t60\t5S10M3S\t*\t0\t0\tGGGGGCCCCCCCCCGGG\tHHHHHHHHHHHHHHHHH\tNM:i:0\tAS:i:10\tXS:i:0\n")
+            f.write("read3\t0\tXYZ|1|100|67890\t31\t60\t5S10M3S\t*\t0\t0\tGGGGGCCCCCCCCCGGG\tHHHHHHHHHHHHHHHHH\tNM:i:0\tAS:i:10\tXS:i:0\n")
     
     def tearDown(self):
         """Clean up after tests."""
@@ -105,6 +111,129 @@ class TestGottcha2Integration(unittest.TestCase):
         
         # Verify the expected pandas calls were made (basic verification)
         mock_df.from_dict.assert_called_once()
+
+    def test_multiple_taxid_extraction(self):
+        """Test extracting reads matching multiple taxids."""
+        # Mock the taxonomy lineage lookup
+        with patch('gottcha.scripts.gottcha2.gt.taxid2fullLineage') as mock_lineage, \
+             patch('gottcha.scripts.gottcha2.parse') as mock_parse:
+            
+            def lineage_side_effect(taxid):
+                lineages = {
+                    '12345': '|1|2|12345|',
+                    '67890': '|1|2|67890|',
+                    '99999': '|1|2|99999|'
+                }
+                return lineages.get(taxid, '')
+            mock_lineage.side_effect = lineage_side_effect
+            
+            def parse_side_effect(line, matchFactor):
+                if line.startswith('@'):
+                    return None, None, None, None, None, None, None, None, None, None
+                parts = line.split('\t')
+                ref = parts[2]
+                region = (int(parts[3]), int(parts[3])+10)  # Assuming 10bp matches
+                nm = 0
+                rname = parts[0]
+                rseq = parts[9]
+                rq = parts[10]
+                flag = int(parts[1])
+                cigr = parts[5]
+                return ref, region, nm, rname, rseq, rq, flag, cigr, True, True
+            mock_parse.side_effect = parse_side_effect
+            
+            # Test extraction with multiple taxids using context manager
+            with open(self.sam_file, 'r') as f:
+                result = gottcha2.ReadExtractWorker(
+                    f.name,
+                    0,
+                    os.path.getsize(self.sam_file),
+                    "12345,67890",
+                    0.9
+                )
+                
+                # Parse results
+                result_lines = [line for line in result.strip().split('\n') if line]
+                reads = [line for line in result_lines if line.startswith('@')]
+                
+                # Verify correct reads were extracted
+                self.assertEqual(len(reads), 3, "Should extract 3 reads")
+                
+                # Check taxids in extracted reads
+                extracted_taxids = set()
+                for read in reads:
+                    if '12345' in read:
+                        extracted_taxids.add('12345')
+                    elif '67890' in read:
+                        extracted_taxids.add('67890')
+                        
+                self.assertEqual(
+                    extracted_taxids,
+                    {'12345', '67890'},
+                    "Should extract reads from both specified taxids"
+                )
+                
+                # Verify exclusion of unspecified taxid
+                self.assertTrue(
+                    all('99999' not in line for line in result_lines),
+                    "Should not extract reads from unspecified taxid 99999"
+                )
+
+    def test_taxid_file_input(self):
+        """Test extracting reads using taxids from a file."""
+        # Create a temporary taxid file
+        taxid_file = os.path.join(self.test_dir, "taxids.txt")
+        with open(taxid_file, 'w') as f:
+            f.write("12345\n")
+            f.write("67890\n")
+            f.write("\n")  # Empty line to test handling
+            f.write("# Comment to ignore\n")
+        
+        with patch('gottcha.scripts.gottcha2.gt.taxid2fullLineage') as mock_lineage, \
+            patch('gottcha.scripts.gottcha2.parse') as mock_parse:
+            
+            def lineage_side_effect(taxid):
+                lineages = {
+                    '12345': '|1|2|12345|',
+                    '67890': '|1|2|67890|'
+                }
+                return lineages.get(taxid, '')
+            mock_lineage.side_effect = lineage_side_effect
+            
+            def parse_side_effect(line, matchFactor):
+                if line.startswith('@'):
+                    return None, None, None, None, None, None, None, None, None, None
+                parts = line.split('\t')
+                ref = parts[2]
+                region = (int(parts[3]), int(parts[3])+10)
+                return ref, region, 0, parts[0], parts[9], parts[10], int(parts[1]), parts[5], True, True
+            mock_parse.side_effect = parse_side_effect
+            
+            # Test extraction using file input
+            result = gottcha2.ReadExtractWorker(
+                self.sam_file,
+                0,
+                os.path.getsize(self.sam_file),
+                f"@{taxid_file}",
+                0.9
+            )
+            
+            result_lines = [line for line in result.strip().split('\n') if line]
+            reads = [line for line in result_lines if line.startswith('@')]
+            
+            self.assertEqual(len(reads), 3, "Should extract 3 reads")
+            extracted_taxids = set()
+            for read in reads:
+                if '12345' in read:
+                    extracted_taxids.add('12345')
+                elif '67890' in read:
+                    extracted_taxids.add('67890')
+            
+            self.assertEqual(
+                extracted_taxids,
+                {'12345', '67890'},
+                "Should extract reads from taxids listed in file"
+            )
 
 if __name__ == '__main__':
     unittest.main()

@@ -89,8 +89,10 @@ def parse_params(ver, args):
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
                     help="Mismatch penalty for the aligner. [default: 10]")
 
-    p.add_argument( '-e','--extract', metavar='[TAXID]', type=str, default=None,
-                    help="""Extract reads mapping to a specific TAXID. [default: None]""" )
+    p.add_argument('-e', '--extract', metavar='[TAXID[,TAXID...] or @FILE]', type=str, default=None,
+                help="""Extract reads mapping to specific TAXIDs. Either comma-separated list 
+                or @filename with one taxid per line. Examples: 
+                -e "1234,5678" or -e @taxids.txt [default: None]""")
 
     p.add_argument( '-fm','--format', metavar='[STR]', type=str, default='tsv',
                     choices=['tsv','csv','biom'],
@@ -560,44 +562,36 @@ def extract_read_from_sam(sam_fn, o, taxid, numthreads, matchFactor):
     #clean up
     pool.close()
 
-def ReadExtractWorker(filename, chunkStart, chunkSize, taxid, matchFactor):
-    """
-    Worker function to extract reads from a chunk of SAM file.
-    
-    Processes a chunk of SAM file and extracts reads that map to a specific taxid
-    or its descendants, formatting them as FASTQ entries.
-    
-    Parameters:
-        filename (str): Path to the SAM file
-        chunkStart (int): Byte position to start reading
-        chunkSize (int): Number of bytes to read
-        taxid (str): Taxid to filter reads for
-        matchFactor (float): Minimum fraction required for a valid match
+def ReadExtractWorker(filename, chunkStart, chunkSize, taxids, matchFactor):
+    """Extract reads matching any of the specified taxids"""
+    # Convert input to list of taxids
+    taxid_list = parse_taxids(taxids)
+    if not taxid_list:
+        return ""
         
-    Returns:
-        str: FASTQ-formatted string containing all matching reads
-    """
-    # output
-    readstr=""
-    # processing alignments in SAM format
-    f = open( filename )
-    f.seek(chunkStart)
-    lines = f.read(chunkSize).splitlines()
-    for line in lines:
-        ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
+    readstr = ""
+    with open(filename) as f:
+        f.seek(chunkStart)
+        lines = f.read(chunkSize).splitlines()
+        
+        for line in lines:
+            ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
+            if not (pri_aln_flag and valid_flag): 
+                continue
 
-        if not (pri_aln_flag and valid_flag): continue
-
-        acc, start, stop, t = ref.split('|')
-
-        if int(flag) & 16:
-            g = findall(r'\d+\w', cigr)
-            cigr = "".join(list(reversed(g)))
-            rseq = seqReverseComplement(rseq)
-            rq = rq[::-1]
-
-        if is_descendant( t, taxid ):
-            readstr += f"@{rname} {ref}:{region[0]}..{region[1]} {cigr} NM:i:{nm}\n{rseq}\n+\n{rq}\n"
+            acc, start, stop, t = ref.split('|')
+            
+            # Check if current taxid matches any requested taxids
+            for taxid in taxid_list:
+                if is_descendant(t, taxid):
+                    if int(flag) & 16:
+                        g = findall(r'\d+\w', cigr)
+                        cigr = "".join(list(reversed(g)))
+                        rseq = seqReverseComplement(rseq)
+                        rq = rq[::-1]
+                    readstr += "@%s %s:%s..%s %s\n%s\n+\n%s\n" % (rname, ref, region[0], region[1], cigr, rseq, rq)
+                    break
+                    
     return readstr
 
 def seqReverseComplement(seq):
@@ -1076,6 +1070,23 @@ def print_message(msg, silent, start, logfile, errorout=0):
         sys.exit( message )
     elif not silent:
         sys.stderr.write( message )
+
+def parse_taxids(taxid_arg):
+    """Parse taxids from command line arg or file"""
+    if not taxid_arg:
+        return []
+    if taxid_arg.startswith('@'):
+        # Read taxids from file
+        filename = taxid_arg[1:]  # Remove @ prefix
+        try:
+            with open(filename) as f:
+                return [x.strip() for x in f.readlines() if x.strip()]
+        except IOError as e:
+            sys.stderr.write(f"Error reading taxid file {filename}: {e}\n")
+            sys.exit(1)
+    else:
+        # Parse comma-separated list
+        return [x.strip() for x in taxid_arg.split(',')]
 
 def main(args):
     """
