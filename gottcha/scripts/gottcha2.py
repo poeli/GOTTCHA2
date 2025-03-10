@@ -1082,7 +1082,7 @@ def parse_taxids(taxid_arg):
         filename = taxid_arg[1:]  # Remove @ prefix
         try:
             with open(filename) as f:
-                return [x.strip() for x in f.readlines() if x.strip()]
+                return [x.strip() for x in f.readlines() if x.strip() and not x.startswith('#')]
         except IOError as e:
             sys.stderr.write(f"Error reading taxid file {filename}: {e}\n")
             sys.exit(1)
@@ -1223,7 +1223,10 @@ def main(args):
         # check if argvs.extract is a file
         taxa_list = parse_taxids(argvs.extract)
         if len(taxa_list) == 0:
-            print_message( f"[ERROR] No taxa found in the extraction list.", argvs.silent, begin_t, logfile, errorout=1 )
+            if os.path.isfile(argvs.extract):
+                print_message( f"[ERROR] No taxa found. If you're inputting a file containing a taxa list, please prefix the file name with '@'.", argvs.silent, begin_t, logfile, errorout=1 )
+            else:
+                print_message( f"[ERROR] No taxa found in the extraction list.", argvs.silent, begin_t, logfile, errorout=1 )
         print_message( f"Extracting reads mapped to taxa: {taxa_list}...", argvs.silent, begin_t, logfile )
         read_count = extract_read_from_sam(os.path.abspath(samfile), out_fp, taxa_list, argvs.threads, argvs.matchFactor)
         print_message( f"Done extracting {read_count} valid reads to '{outfile}'.", argvs.silent, begin_t, logfile )
