@@ -121,7 +121,7 @@ class TestGottcha2Integration(unittest.TestCase):
         with patch('gottcha.scripts.gottcha2.gt.taxid2fullLineage') as mock_lineage, \
              patch('gottcha.scripts.gottcha2.parse') as mock_parse:
             
-            def lineage_side_effect(taxid):
+            def lineage_side_effect(taxid, space2underscore=False):
                 lineages = {
                     '12345': '|1|2|12345|',
                     '67890': '|1|2|67890|',
@@ -147,12 +147,12 @@ class TestGottcha2Integration(unittest.TestCase):
             
             # Test extraction with multiple taxids using context manager
             with open(self.sam_file, 'r') as f:
-                result = gottcha2.ReadExtractWorker(
+                result, read_count = gottcha2.ReadExtractWorker(
                     f.name,
                     0,
                     os.path.getsize(self.sam_file),
                     "12345,67890",
-                    0.9
+                    0.5
                 )
                 
                 # Parse results
@@ -160,7 +160,7 @@ class TestGottcha2Integration(unittest.TestCase):
                 reads = [line for line in result_lines if line.startswith('@')]
                 
                 # Verify correct reads were extracted
-                self.assertEqual(len(reads), 3, "Should extract 3 reads")
+                self.assertEqual(read_count, 3, "Should extract 3 reads")
                 
                 # Check taxids in extracted reads
                 extracted_taxids = set()
@@ -195,7 +195,7 @@ class TestGottcha2Integration(unittest.TestCase):
         with patch('gottcha.scripts.gottcha2.gt.taxid2fullLineage') as mock_lineage, \
             patch('gottcha.scripts.gottcha2.parse') as mock_parse:
             
-            def lineage_side_effect(taxid):
+            def lineage_side_effect(taxid, space2underscore=False):
                 lineages = {
                     '12345': '|1|2|12345|',
                     '67890': '|1|2|67890|'
@@ -213,18 +213,18 @@ class TestGottcha2Integration(unittest.TestCase):
             mock_parse.side_effect = parse_side_effect
             
             # Test extraction using file input
-            result = gottcha2.ReadExtractWorker(
+            result, read_count = gottcha2.ReadExtractWorker(
                 self.sam_file,
                 0,
                 os.path.getsize(self.sam_file),
-                f"@{taxid_file}",
-                0.9
+                f"{taxid_file}",
+                0.5
             )
             
             result_lines = [line for line in result.strip().split('\n') if line]
             reads = [line for line in result_lines if line.startswith('@')]
             
-            self.assertEqual(len(reads), 3, "Should extract 3 reads")
+            self.assertEqual(read_count, 3, "Should extract 3 reads")
             extracted_taxids = set()
             for read in reads:
                 if '12345' in read:

@@ -89,10 +89,10 @@ def parse_params(ver, args):
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
                     help="Mismatch penalty for the aligner. [default: 10]")
 
-    p.add_argument('-e', '--extract', metavar='[TAXID[,TAXID...] or @FILE]', type=str, default=None,
-                help="""Extract reads mapping to specific TAXIDs. Either comma-separated list 
-                or @filename with one taxid per line. Examples: 
-                -e "1234,5678" or -e @taxids.txt [default: None]""")
+    p.add_argument('-e', '--extract', metavar='[TAXON[,TAXON2, TAXON3...]] or [@FILE]', type=str, default=None,
+                    help="""Extract reads mapping to specific TAXIDs. Either comma-separated list 
+                    or filename with one taxid per line. Examples: 
+                    -e "1234,5678" or -e @taxids.txt [default: None]""")
 
     p.add_argument( '-fm','--format', metavar='[STR]', type=str, default='tsv',
                     choices=['tsv','csv','biom'],
@@ -513,7 +513,7 @@ def process_sam_file(sam_fn, numthreads, matchFactor):
 
     return result, mapped_reads
 
-def isin_target_taxa(taxid, target_taxa):
+def isin_target_taxa(taxid, taxa_list):
     """
     Check if one taxid is a descendant of another in the taxonomy tree.
     
@@ -525,13 +525,13 @@ def isin_target_taxa(taxid, target_taxa):
         bool: True if taxid is in target taxa, False otherwise
     """
     fullLineage = gt.taxid2fullLineage(taxid, space2underscore=False)
-    for target in target_taxa:
+    for target in taxa_list:
         if f"|{target}|" in fullLineage:
             return True
         
     return False
 
-def extract_read_from_sam(sam_fn, o, taxa_str, numthreads, matchFactor):
+def extract_read_from_sam(sam_fn, o, taxa_list, numthreads, matchFactor):
     """
     Extract reads from a SAM file that map to a specific taxid or its descendants.
     
@@ -553,7 +553,7 @@ def extract_read_from_sam(sam_fn, o, taxa_str, numthreads, matchFactor):
     total_read_count = 0
 
     for chunkStart,chunkSize in chunkify(sam_fn):
-        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxa_str,matchFactor)) )
+        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxa_list,matchFactor)) )
 
     #wait for all jobs to finish
     for job in jobs:
@@ -567,7 +567,7 @@ def extract_read_from_sam(sam_fn, o, taxa_str, numthreads, matchFactor):
 
     return total_read_count
 
-def ReadExtractWorker(filename, chunkStart, chunkSize, taxa_str, matchFactor):
+def ReadExtractWorker(filename, chunkStart, chunkSize, taxa_list, matchFactor):
     """
     Worker function to extract reads from a chunk of SAM file.
     
@@ -584,7 +584,6 @@ def ReadExtractWorker(filename, chunkStart, chunkSize, taxa_str, matchFactor):
     Returns:
         str: FASTQ-formatted string containing all matching reads
     """
-    taxa_list = taxa_str.split(',')
     read_count = 0
     # output
     readstr=""
@@ -610,20 +609,6 @@ def ReadExtractWorker(filename, chunkStart, chunkSize, taxa_str, matchFactor):
             read_count += 1
     
     return readstr, read_count
-            acc, start, stop, t = ref.split('|')
-            
-            # Check if current taxid matches any requested taxids
-            for taxid in taxid_list:
-                if is_descendant(t, taxid):
-                    if int(flag) & 16:
-                        g = findall(r'\d+\w', cigr)
-                        cigr = "".join(list(reversed(g)))
-                        rseq = seqReverseComplement(rseq)
-                        rq = rq[::-1]
-                    readstr += "@%s %s:%s..%s %s\n%s\n+\n%s\n" % (rname, ref, region[0], region[1], cigr, rseq, rq)
-                    break
-                    
-    return readstr
 
 def seqReverseComplement(seq):
     """
@@ -1223,26 +1208,24 @@ def main(args):
     if not argvs.skipRemoveMultiple:
         # remove multiple hits from the SAM file
         print_message( "Removing multiple hits from SAM file...", argvs.silent, begin_t, logfile )
+        samfile_output = f"{argvs.outdir}/{argvs.prefix}.gottcha_{argvs.dbLevel}.sam"
         samfile_temp = f"{argvs.outdir}/{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
         flag = remove_multiple_hits(samfile, samfile_temp)
         if flag:
-            os.rename(samfile_temp, samfile)
+            os.rename(samfile_temp, samfile_output)
+            samfile = samfile_output
+            # Note:
+            # When input of the gottcha2 is a SAM file and new outdir/prefix is provided, the output will be saved to that location.
+            # If not, the output will overwrite the original SAM file.
         gc.collect()
 
     if argvs.extract:
         # check if argvs.extract is a file
-        if os.path.isfile(argvs.extract):
-            print_message( f"Loading taxa to extract from '{argvs.extract}'...", argvs.silent, begin_t, logfile )
-            with open(argvs.extract, 'r') as f:
-                taxa_str = ','.join([x.strip() for x in f.readlines()])
-        else:
-            taxa_str = argvs.extract
-        
-        if not taxa_str:
-            print_message( f"ERROR: No taxa provided to extract.", argvs.silent, begin_t, logfile, errorout=1 )
-        
-        print_message( f"Extracting reads mapped to taxa: '{taxa_str}'...", argvs.silent, begin_t, logfile )
-        read_count = extract_read_from_sam(os.path.abspath(samfile), out_fp, taxa_str, argvs.threads, argvs.matchFactor)
+        taxa_list = parse_taxids(argvs.extract)
+        if len(taxa_list) == 0:
+            print_message( f"[ERROR] No taxa found in the extraction list.", argvs.silent, begin_t, logfile, errorout=1 )
+        print_message( f"Extracting reads mapped to taxa: {taxa_list}...", argvs.silent, begin_t, logfile )
+        read_count = extract_read_from_sam(os.path.abspath(samfile), out_fp, taxa_list, argvs.threads, argvs.matchFactor)
         print_message( f"Done extracting {read_count} valid reads to '{outfile}'.", argvs.silent, begin_t, logfile )
     else:
         print_message( "Loading SAM file...", argvs.silent, begin_t, logfile )
