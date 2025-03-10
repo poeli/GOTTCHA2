@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.11"
+__version__   = "2.1.8.12"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -89,8 +89,8 @@ def parse_params(ver, args):
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
                     help="Mismatch penalty for the aligner. [default: 10]")
 
-    p.add_argument( '-e','--extract', metavar='[TAXID]', type=str, default=None,
-                    help="""Extract reads mapping to a specific TAXID. [default: None]""" )
+    p.add_argument( '-e','--extract', metavar='[TAXON](,[TAXON2],[TAXON3]...)|[FILE]', type=str, default=None,
+                    help="""Extract reads mapped to specific taxa (by taxonomic IDs or names) or from a plain text list of taxonomy entries.""" )
 
     p.add_argument( '-fm','--format', metavar='[STR]', type=str, default='tsv',
                     choices=['tsv','csv','biom'],
@@ -511,24 +511,25 @@ def process_sam_file(sam_fn, numthreads, matchFactor):
 
     return result, mapped_reads
 
-def is_descendant(taxid, taxid_ant):
+def isin_target_taxa(taxid, target_taxa):
     """
     Check if one taxid is a descendant of another in the taxonomy tree.
     
     Parameters:
         taxid (str): The taxid to check
-        taxid_ant (str): The potential ancestor taxid
+        target_taxa (list): The list of target taxa to check
         
     Returns:
-        bool: True if taxid is a descendant of taxid_ant, False otherwise
+        bool: True if taxid is in target taxa, False otherwise
     """
-    fullLineage = gt.taxid2fullLineage( taxid )
-    if "|%s|" % taxid_ant in fullLineage:
-        return True
-    else:
-        return False
+    fullLineage = gt.taxid2fullLineage(taxid, space2underscore=False)
+    for target in target_taxa:
+        if f"|{target}|" in fullLineage:
+            return True
+        
+    return False
 
-def extract_read_from_sam(sam_fn, o, taxid, numthreads, matchFactor):
+def extract_read_from_sam(sam_fn, o, taxa_str, numthreads, matchFactor):
     """
     Extract reads from a SAM file that map to a specific taxid or its descendants.
     
@@ -538,7 +539,7 @@ def extract_read_from_sam(sam_fn, o, taxid, numthreads, matchFactor):
     Parameters:
         sam_fn (str): Path to the SAM file
         o (file): Output file handle to write extracted reads
-        taxid (str): Taxid to extract reads for (including descendants)
+        taxa_str (str): Taxanomy string to extract reads for (including descendants)
         numthreads (int): Number of parallel processes to use
         matchFactor (float): Minimum fraction required for a valid match
         
@@ -547,20 +548,24 @@ def extract_read_from_sam(sam_fn, o, taxid, numthreads, matchFactor):
     """
     pool = Pool(processes=numthreads)
     jobs = []
+    total_read_count = 0
 
     for chunkStart,chunkSize in chunkify(sam_fn):
-        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxid,matchFactor)) )
+        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxa_str,matchFactor)) )
 
     #wait for all jobs to finish
     for job in jobs:
-        outread = job.get()
+        outread, read_count = job.get()
+        total_read_count += read_count
         o.write(outread)
         o.flush()
 
     #clean up
     pool.close()
 
-def ReadExtractWorker(filename, chunkStart, chunkSize, taxid, matchFactor):
+    return total_read_count
+
+def ReadExtractWorker(filename, chunkStart, chunkSize, taxa_str, matchFactor):
     """
     Worker function to extract reads from a chunk of SAM file.
     
@@ -571,12 +576,14 @@ def ReadExtractWorker(filename, chunkStart, chunkSize, taxid, matchFactor):
         filename (str): Path to the SAM file
         chunkStart (int): Byte position to start reading
         chunkSize (int): Number of bytes to read
-        taxid (str): Taxid to filter reads for
+        taxa_str (str): Taxid to filter reads for
         matchFactor (float): Minimum fraction required for a valid match
         
     Returns:
         str: FASTQ-formatted string containing all matching reads
     """
+    taxa_list = taxa_str.split(',')
+    read_count = 0
     # output
     readstr=""
     # processing alignments in SAM format
@@ -596,9 +603,11 @@ def ReadExtractWorker(filename, chunkStart, chunkSize, taxid, matchFactor):
             rseq = seqReverseComplement(rseq)
             rq = rq[::-1]
 
-        if is_descendant( t, taxid ):
+        if isin_target_taxa(t, taxa_list):
             readstr += f"@{rname} {ref}:{region[0]}..{region[1]} {cigr} NM:i:{nm}\n{rseq}\n+\n{rq}\n"
-    return readstr
+            read_count += 1
+    
+    return readstr, read_count
 
 def seqReverseComplement(seq):
     """
@@ -874,7 +883,7 @@ def generaete_biom_file(res_df, o, tg_rank, sampleid):
 
     return True
 
-def generaete_lineage_file(target_df, o, tg_rank):
+def generaete_lineage_file(target_df, o):
     """
     Generate a lineage file showing taxonomic paths with abundances.
     
@@ -884,7 +893,6 @@ def generaete_lineage_file(target_df, o, tg_rank):
     Parameters:
         target_df (pandas.DataFrame): DataFrame containing abundance and taxids
         o (str): Output file path
-        tg_rank (str): Target taxonomic rank
         
     Returns:
         bool: True if successful
@@ -941,15 +949,16 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
 
     return exitcode, mm2_cmd, errs
 
-def remove_multiple_hits(samfile):
+def remove_multiple_hits(samfile, samfile_temp):
     """
     Removing multiple hits from the SAM file by keeping only the best alignment for each read.
 
     Parameters:
         samfile (str): Path to the SAM file
+        samfile_temp (str): Path to the temporary SAM file with only the best alignments
 
     Returns:
-        str: Path to the temporary SAM file with only the best alignments
+        bool: False if no multiple hits were found, True if multiple hits were removed
     """
     logging.info(f'Loading the sam file...')
 
@@ -964,49 +973,43 @@ def remove_multiple_hits(samfile):
                 dtype={'QNAME': 'str', 'FLAG': 'uint16'}
     )
 
-    logging.info(f'Total alignments in SAM file: {len(df)}')
-
     df[['AS']] = df[['AS']].astype('uint16')
+    aln_count = len(df)
+    logging.info(f'Total alignments in SAM file: {aln_count}')
 
     logging.info(f'Filtering non-primary hits...')
-
     # for each row, if the flag bitwise AND with 256 (not primary alignment) or 2048 (supplementary), then remove them from the df
     df = df[~(df['FLAG'] & (256|2048)).astype(bool)]
 
     logging.info(f'After removing non-parmary hits: {len(df)}')
-
     logging.info(f'Identifying top score hits...')
-
     # if FLAG bitwise AND with 128 (second in pair), append '/2' to the QNAME
     idx = (df['FLAG'] & 128).astype(bool)
     df.loc[idx, 'QNAME'] = df.loc[idx, 'QNAME'] + '/2'
 
     # get the index with the best alignment score for each read
     idxmax = df.groupby('QNAME')['AS'].idxmax()
-
     logging.info(f'Total top score hits: {len(idxmax)}')
 
-    # Create a set of indices for faster lookup
-    idxmax_set = set(idxmax.values)
+    if len(idxmax) == aln_count:
+        logging.info(f'No multiple hits found. Keeping the original SAM file.')
+        return False
+    else:
+        # Create a set of indices for faster lookup
+        idxmax_set = set(idxmax.values)
+        del idxmax
 
-    del idxmax
+        logging.info(f'Writing top score hits...')
+        with open(samfile_temp, 'w') as fout, open(samfile, 'r') as fin:
+            for idx, line in enumerate(fin):
+                if not idx%100000:
+                    logging.debug(f'Processed {idx} lines...')
+                
+                if idx in idxmax_set:
+                    fout.write(line)
+        logging.info(f'Done writing hits.')
 
-    logging.info(f'Writing top score hits...')
-
-    # Use a buffered approach for better I/O performance
-    buffer_size = 100000  # Number of lines to process at once
-
-    with open(f'{samfile}.temp', 'w') as fout, open(samfile, 'r') as fin:
-        for idx, line in enumerate(fin):
-            if not idx%100000:
-                logging.debug(f'Processed {idx} lines...')
-            
-            if idx in idxmax_set:
-                fout.write(line)
-
-    logging.info(f'Done writing hits.')
-
-    return f'{samfile}.temp'
+        return True
 
 
 def loadDatabaseStats(db_stats_file):
@@ -1088,8 +1091,8 @@ def main(args):
     argvs = parse_params( __version__, args )
     begin_t  = time.time()
     sam_fp   = argvs.sam[0] if argvs.sam else ""
-    samfile  = "%s/%s.gottcha_%s.sam" % ( argvs.outdir, argvs.prefix, argvs.dbLevel ) if not argvs.sam else sam_fp.name
-    logfile  = "%s/%s.gottcha_%s.log" % ( argvs.outdir, argvs.prefix, argvs.dbLevel )
+    samfile  = f"{argvs.outdir}/{argvs.prefix}.gottcha_{argvs.dbLevel}.sam" if not argvs.sam else sam_fp.name
+    logfile  = f"{argvs.outdir}/{argvs.prefix}.gottcha_{argvs.dbLevel}.log"
 
     logging_level = logging.WARNING
 
@@ -1132,7 +1135,7 @@ def main(args):
         ext = "tsv"
         outfile = "%s/%s.tsv" % (argvs.outdir, argvs.prefix)
         if argvs.extract:
-            outfile = "%s/%s.extract%s.fastq" % (argvs.outdir, argvs.prefix, argvs.extract)
+            outfile = "%s/%s.extract.fastq" % (argvs.outdir, argvs.prefix)
         elif argvs.format == "csv":
             outfile = "%s/%s.csv" % (argvs.outdir, argvs.prefix)
         elif argvs.format == "biom":
@@ -1195,14 +1198,27 @@ def main(args):
     if not argvs.skipRemoveMultiple:
         # remove multiple hits from the SAM file
         print_message( "Removing multiple hits from SAM file...", argvs.silent, begin_t, logfile )
-        samfile_temp = remove_multiple_hits(samfile)
-        os.rename(samfile_temp, samfile)
+        samfile_temp = f"{argvs.outdir}/{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
+        flag = remove_multiple_hits(samfile, samfile_temp)
+        if flag:
+            os.rename(samfile_temp, samfile)
         gc.collect()
 
     if argvs.extract:
-        print_message( f"Extracting reads mapped to taxid: {argvs.extract}...", argvs.silent, begin_t, logfile )
-        extract_read_from_sam( os.path.abspath(samfile), out_fp, argvs.extract, argvs.threads, argvs.matchFactor )
-        print_message( f"Done extracting reads to {outfile}.", argvs.silent, begin_t, logfile )
+        # check if argvs.extract is a file
+        if os.path.isfile(argvs.extract):
+            print_message( f"Loading taxa to extract from '{argvs.extract}'...", argvs.silent, begin_t, logfile )
+            with open(argvs.extract, 'r') as f:
+                taxa_str = ','.join([x.strip() for x in f.readlines()])
+        else:
+            taxa_str = argvs.extract
+        
+        if not taxa_str:
+            print_message( f"ERROR: No taxa provided to extract.", argvs.silent, begin_t, logfile, errorout=1 )
+        
+        print_message( f"Extracting reads mapped to taxa: '{taxa_str}'...", argvs.silent, begin_t, logfile )
+        read_count = extract_read_from_sam(os.path.abspath(samfile), out_fp, taxa_str, argvs.threads, argvs.matchFactor)
+        print_message( f"Done extracting {read_count} valid reads to '{outfile}'.", argvs.silent, begin_t, logfile )
     else:
         print_message( "Loading SAM file...", argvs.silent, begin_t, logfile )
         (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, argvs.matchFactor)
@@ -1226,7 +1242,7 @@ def main(args):
                 target_df = res_df.loc[target_idx, ['ABUNDANCE','TAXID']]
                 tax_num = len(target_df)
                 if tax_num:
-                     generaete_lineage_file(target_df, outfile_lineage, argvs.dbLevel)
+                    generaete_lineage_file(target_df, outfile_lineage)
 
                 print_message( f"{tax_num} qualified {argvs.dbLevel} profiled; Results saved to {outfile}.", argvs.silent, begin_t, logfile )
         else:
