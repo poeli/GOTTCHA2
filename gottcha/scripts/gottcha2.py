@@ -803,14 +803,6 @@ def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
     except:
         return 0
     
-def estimate_ani(tol_bp, tol_mismatch):
-    """
-    """
-    try:
-        return (1 - tol_mismatch/tol_bp)
-    except:
-        return 0
-
 def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     """
     Generate taxonomy result files in TSV or CSV format.

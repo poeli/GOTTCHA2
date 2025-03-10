@@ -74,13 +74,16 @@ class TestGottcha2Integration(unittest.TestCase):
         self.assertEqual(result['ABC|1|100|12345']['LL'], 20)  # Linear length of merged regions
         self.assertEqual(result['XYZ|1|100|67890']['LL'], 10)
     
-    def test_is_descendant(self):
+    def test_isin_target_taxa(self):
         """Test checking if a taxid is descendant of another."""
         with patch('gottcha.scripts.gottcha2.gt.taxid2fullLineage', return_value='|1|2|1234|5678|'):
             # Test where target is in lineage
-            self.assertTrue(gottcha2.is_descendant('5678', '1234'))
+            self.assertTrue(gottcha2.isin_target_taxa('5678', '1234'))
             # Test where target is not in lineage
-            self.assertFalse(gottcha2.is_descendant('5678', '9999'))
+            self.assertFalse(gottcha2.isin_target_taxa('5678', '9999'))
+            # Test where target is in lineage
+            self.assertTrue(gottcha2.isin_target_taxa('5678', ['1234','9999']))
+
 
     @patch('gottcha.scripts.gottcha2.pd.DataFrame')
     def test_group_refs_to_strains(self, mock_df):
