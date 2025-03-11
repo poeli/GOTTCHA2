@@ -960,7 +960,7 @@ def remove_multiple_hits(samfile):
 
     logging.info(f'Total alignments in SAM file: {len(df)}')
 
-    df[['AS']] = df[['AS']].astype('uint16')
+    df[['AS']] = df[['AS']].astype('int16') 
 
     logging.info(f'Filtering non-primary hits...')
 
