@@ -31,7 +31,8 @@ def convert_sam_to_bam(input_sam: str, output_bam: str, threads=4, quiet=False) 
                 for line in f:
                     ref = line.strip()
                     if ref and ref != '*':
-                        out.write(f"@SQ\tSN:{ref}\tLN:999999999\n")
+                        start, end = ref.split('|')[1:3]
+                        out.write(f"@SQ\tSN:{ref}\tLN:{end-start+1}\n")
 
         # Step 2: Create temp BAM with header
         temp_bam = os.path.join(temp_dir, "temp.bam")
