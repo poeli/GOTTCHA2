@@ -86,8 +86,16 @@ def extract_matching_reads(input_file, taxa_list, output_prefix, threads=1):
             logging.info(f"Extracting rows from SAM file: {input_file}")
             cmd = f"grep -E '{grep_pattern}' {input_file} > {extracted_sam}"
         
-        # Run extraction command
-        subprocess.run(cmd, shell=True, check=True)
+        # Run extraction command without checking exit code (grep returns 1 if no matches found)
+        subprocess.run(cmd, shell=True)
+        
+        # Check if the extracted file exists and has content
+        if not os.path.exists(extracted_sam) or os.path.getsize(extracted_sam) == 0:
+            logging.warning(f"No reads found matching the specified taxa: {taxa_pattern}")
+            # Create empty output files
+            with gzip.open(fasta_output, 'wt') as fasta, open(tab_output, 'w') as tab:
+                pass  # Create empty files
+            return 0
         
         # Process the extracted rows
         read_count = 0
@@ -121,7 +129,11 @@ def extract_matching_reads(input_file, taxa_list, output_prefix, threads=1):
                 
                 read_count += 1
     
-    logging.info(f"Extracted {read_count} reads to {fasta_output} (gzipped) and {tab_output}")
+    if read_count > 0:
+        logging.info(f"Extracted {read_count} reads to {fasta_output} (gzipped) and {tab_output}")
+    else:
+        logging.warning("No valid SAM records found matching the specified taxa")
+    
     return read_count
 
 def main():
