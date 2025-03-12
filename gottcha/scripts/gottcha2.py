@@ -966,7 +966,8 @@ def remove_multiple_hits(samfile, samfile_temp):
                 dtype={'QNAME': 'str', 'FLAG': 'uint16'}
     )
 
-    logging.info(f'Total alignments in SAM file: {len(df)}')
+    aln_count = len(df)
+    logging.info(f'Total alignments in SAM file: {aln_count}')
 
     df[['AS']] = df[['AS']].astype('int16') 
 
