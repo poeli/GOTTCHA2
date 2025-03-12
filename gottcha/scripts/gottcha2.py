@@ -966,9 +966,10 @@ def remove_multiple_hits(samfile, samfile_temp):
                 dtype={'QNAME': 'str', 'FLAG': 'uint16'}
     )
 
-    df[['AS']] = df[['AS']].astype('uint16')
     aln_count = len(df)
     logging.info(f'Total alignments in SAM file: {aln_count}')
+
+    df[['AS']] = df[['AS']].astype('int16') 
 
     logging.info(f'Filtering non-primary hits...')
     # for each row, if the flag bitwise AND with 256 (not primary alignment) or 2048 (supplementary), then remove them from the df
