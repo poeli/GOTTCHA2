@@ -29,7 +29,7 @@ import sys, os, time, subprocess
 import pandas as pd
 import gc
 from re import search,findall
-from multiprocessing import Pool
+from multiprocessing import Pool, set_start_method
 from itertools import chain
 import math
 import logging
@@ -1221,6 +1221,7 @@ def main(args):
 
     if argvs.extract:
         # check if argvs.extract is a file
+        set_start_method("fork")
         taxa_list = parse_taxids(argvs.extract)
         if len(taxa_list) == 0:
             if os.path.isfile(argvs.extract):
