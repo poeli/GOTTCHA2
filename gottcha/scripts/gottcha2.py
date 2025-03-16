@@ -20,8 +20,7 @@ it under the terms of the GNU General Public License as published by the Free
 Software Foundation; either version 3 of the License, or (at your option) any
 later version. Accordingly, this program is distributed in the hope that it will
 be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-License for more details.
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 """
 
 import argparse as ap, textwrap as tw
@@ -94,6 +93,10 @@ def parse_params(ver, args):
                     or filename with one taxid per line. Examples: 
                     -e "1234,5678" or -e @taxids.txt [default: None]""")
 
+    p.add_argument('-ef', '--extractFasta', metavar='<INT>', type=int, nargs='?', const=20, default=None,
+                    help="""Extract up to N sequences (default: 20) per reference in the SAM file to a FASTA file.
+                    Use without a number to extract 20 sequences per reference.""")
+
     p.add_argument( '-fm','--format', metavar='[STR]', type=str, default='tsv',
                     choices=['tsv','csv','biom'],
                     help='Format of the results; available options include tsv, csv or biom. [default: tsv]')
@@ -159,6 +162,9 @@ def parse_params(ver, args):
     if args_parsed.version:
         print( ver )
         sys.exit(0)
+
+    if args_parsed.extract and args_parsed.extractFasta:
+        p.error( '--extract and --extractFasta are incompatible options.' )
 
     if not args_parsed.database:
         p.error( '--database option is missing.' )
@@ -1091,6 +1097,102 @@ def parse_taxids(taxid_arg):
         # Parse comma-separated list
         return [x.strip() for x in taxid_arg.split(',')]
 
+def FastaExtractWorker(filename, chunkStart, chunkSize, matchFactor, max_per_ref):
+    """
+    Worker function to extract sequences in FASTA format from a chunk of a SAM file.
+    
+    Parameters:
+        filename (str): Path to the SAM file
+        chunkStart (int): Starting position in the file
+        chunkSize (int): Size of the chunk to process
+        matchFactor (float): Minimum fraction required for a valid match
+        max_per_ref (int): Maximum sequences to collect per reference
+        
+    Returns:
+        dict: Dictionary with references as keys and lists of FASTA entries as values
+    """
+    ref_seqs = {}
+    
+    # Process the SAM file chunk
+    f = open(filename)
+    f.seek(chunkStart)
+    lines = f.read(chunkSize).splitlines()
+    
+    for line in lines:
+        ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
+        
+        if not (pri_aln_flag and valid_flag):
+            continue
+            
+        # Initialize entry for this reference if not present
+        if ref not in ref_seqs:
+            ref_seqs[ref] = []
+            
+        # Only collect up to max_per_ref sequences per reference
+        if len(ref_seqs[ref]) >= max_per_ref:
+            continue
+            
+        # Handle reverse complement if needed
+        if int(flag) & 16:
+            g = findall(r'\d+\w', cigr)
+            cigr = "".join(list(reversed(g)))
+            rseq = seqReverseComplement(rseq)
+            
+        # Create FASTA entry
+        fasta_entry = f">{rname}|{ref}:{region[0]}..{region[1]}\n{rseq}\n"
+        ref_seqs[ref].append(fasta_entry)
+    
+    return ref_seqs
+
+def extract_fasta_from_sam(sam_fn, o, numthreads, matchFactor, max_per_ref=20):
+    """
+    Extract sequences matching references in the SAM file to FASTA format.
+    
+    Extracts up to max_per_ref sequences for each reference in the SAM file.
+    
+    Parameters:
+        sam_fn (str): Path to the SAM file
+        o (file): Output file handle for the extracted sequences
+        numthreads (int): Number of threads to use for processing
+        matchFactor (float): Minimum fraction required for a valid match
+        max_per_ref (int): Maximum number of sequences to extract per reference
+        
+    Returns:
+        tuple: (ref_count, seq_count) - Number of references and total sequences extracted
+    """
+    pool = Pool(processes=numthreads)
+    jobs = []
+    results = []
+    
+    # Divide the work into chunks for parallel processing
+    for chunkStart, chunkSize in chunkify(sam_fn):
+        jobs.append(pool.apply_async(FastaExtractWorker, (sam_fn, chunkStart, chunkSize, matchFactor, max_per_ref)))
+        
+    # Wait for all jobs to finish and collect results
+    for job in jobs:
+        results.append(job.get())
+    
+    # Cleanup
+    pool.close()
+    
+    # Merge results from all workers
+    all_refs = {}
+    for result in results:
+        for ref, seqs in result.items():
+            if ref not in all_refs:
+                all_refs[ref] = []
+            all_refs[ref].extend(seqs)
+    
+    # Write sequences, respecting max_per_ref limit
+    total_seqs = 0
+    for ref, seqs in all_refs.items():
+        for i, seq_entry in enumerate(seqs):
+            if i < max_per_ref:
+                o.write(seq_entry)
+                total_seqs += 1
+    
+    return len(all_refs), total_seqs
+
 def main(args):
     """
     Main execution function for GOTTCHA2.
@@ -1147,6 +1249,8 @@ def main(args):
         outfile = "%s/%s.tsv" % (argvs.outdir, argvs.prefix)
         if argvs.extract:
             outfile = "%s/%s.extract.fastq" % (argvs.outdir, argvs.prefix)
+        elif argvs.extractFasta:
+            outfile = "%s/%s.extract.fasta" % (argvs.outdir, argvs.prefix)
         elif argvs.format == "csv":
             outfile = "%s/%s.csv" % (argvs.outdir, argvs.prefix)
         elif argvs.format == "biom":
@@ -1172,6 +1276,7 @@ def main(args):
     print_message( f"    Minimal reads    : {argvs.minReads}",    argvs.silent, begin_t, logfile )
     print_message( f"    Minimal mFactor  : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
     print_message( f"    Maximal zScore   : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
+    print_message( f"    Extract FASTA    : {argvs.extractFasta}", argvs.silent, begin_t, logfile )
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
@@ -1231,6 +1336,10 @@ def main(args):
         print_message( f"Extracting reads mapped to taxa: {taxa_list}...", argvs.silent, begin_t, logfile )
         read_count = extract_read_from_sam(os.path.abspath(samfile), out_fp, taxa_list, argvs.threads, argvs.matchFactor)
         print_message( f"Done extracting {read_count} valid reads to '{outfile}'.", argvs.silent, begin_t, logfile )
+    elif argvs.extractFasta is not None:
+        print_message( f"Extracting up to {argvs.extractFasta} sequences per reference to FASTA format...", argvs.silent, begin_t, logfile )
+        ref_count, seq_count = extract_fasta_from_sam(os.path.abspath(samfile), out_fp, argvs.threads, argvs.matchFactor, argvs.extractFasta)
+        print_message( f"Done extracting {seq_count} sequences from {ref_count} references to '{outfile}'.", argvs.silent, begin_t, logfile )
     else:
         print_message( "Loading SAM file...", argvs.silent, begin_t, logfile )
         (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, argvs.matchFactor)
