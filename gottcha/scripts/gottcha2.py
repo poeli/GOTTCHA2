@@ -1218,126 +1218,110 @@ def extract_fasta_by_taxonomy(sam_fn, full_tsv_fn, o, numthreads, matchFactor, m
         tuple: (taxon_count, seq_count) - Number of taxa and total sequences extracted
     """
     try:
-        # Read the full taxonomy report with more flexible parsing
-        taxa_df = pd.read_csv(full_tsv_fn, sep='\t', quoting=3, engine='python')
+        # Try reading the file with the most robust parser options
+        taxa_df = pd.read_csv(full_tsv_fn, 
+                             sep='\t', 
+                             engine='python',
+                             quoting=3,  # QUOTE_NONE
+                             on_bad_lines='skip')  # Skip problematic rows
+        
         print_message(f"Successfully loaded taxonomy profile with {len(taxa_df)} entries", 
                     argvs.debug, begin_t, logfile)
     except Exception as e:
         print_message(f"Error reading taxonomy file: {e}", argvs.silent, begin_t, logfile)
-        # Fallback to more permissive reading
+        # Try another approach with different parameters
         try:
-            taxa_df = pd.read_csv(full_tsv_fn, sep='\t', error_bad_lines=False, warn_bad_lines=True)
+            taxa_df = pd.read_csv(full_tsv_fn, 
+                                 sep='\t',
+                                 engine='python',
+                                 header=0,
+                                 quoting=3,
+                                 on_bad_lines='skip')
+            
             print_message(f"Loaded taxonomy profile with {len(taxa_df)} entries using fallback parser", 
                         argvs.debug, begin_t, logfile)
         except Exception as e2:
             print_message(f"Failed to read taxonomy file even with fallback parser: {e2}", 
                         argvs.silent, begin_t, logfile, errorout=1)
     
-    # Extract the taxon information
-    taxa_list = taxa_df[['LEVEL', 'NAME', 'TAXID']].values.tolist()
+    # Filter out entries with "Filtered out" notes
+    if 'NOTE' in taxa_df.columns:
+        taxa_df = taxa_df[~taxa_df['NOTE'].str.contains('Filtered out', na=False)]
     
-    total_seqs = 0
-    taxon_count = 0
+    # Ensure these columns exist before trying to access them
+    if not all(col in taxa_df.columns for col in ['LEVEL', 'NAME', 'TAXID']):
+        print_message(f"Required columns missing in taxonomy file. Available columns: {taxa_df.columns.tolist()}", 
+                    argvs.silent, begin_t, logfile, errorout=1)
     
-    # Process each taxon separately to extract sequences
-    for level, name, taxid in taxa_list:
-        try:
-            # Skip entries with empty notes (filtered out entries)
-            mask = (taxa_df['LEVEL'] == level) & (taxa_df['NAME'] == name) & (taxa_df['TAXID'] == taxid)
-            if not any(mask):
-                continue
-                
-            notes = taxa_df.loc[mask, 'NOTE'].values[0]
-            if pd.notna(notes) and 'Filtered out' in str(notes):
-                continue
-                
-            taxon_count += 1
-            if argvs.debug:
-                print_message(f"  Extracting sequences for {level} {name} (TAXID:{taxid})...", 
-                            False, begin_t, logfile)
-            
-            # Extract sequences for this taxon
-            read_count = extract_fasta_for_taxon(sam_fn, o, [str(taxid)], numthreads, matchFactor, max_per_taxon, level, name)
-            total_seqs += read_count
-            
-            if argvs.debug:
-                print_message(f"  Extracted {read_count} sequences for {level} {name}", 
-                            False, begin_t, logfile)
-        except Exception as e:
-            print_message(f"Error processing taxon {level} {name} (TAXID:{taxid}): {e}", 
-                        argvs.debug, begin_t, logfile)
-            continue
+    # Create a dict of taxids mapped to their level and name for quick lookup
+    taxa_dict = {}
+    for _, row in taxa_df[['LEVEL', 'NAME', 'TAXID']].iterrows():
+        if pd.notna(row['TAXID']):
+            taxa_dict[str(row['TAXID']).strip()] = {
+                'level': str(row['LEVEL']).replace(' ', '_') if pd.notna(row['LEVEL']) else 'unknown',
+                'name': str(row['NAME']).replace(' ', '_') if pd.notna(row['NAME']) else 'unknown'
+            }
     
-    return taxon_count, total_seqs
-
-def extract_fasta_for_taxon(sam_fn, o, taxa_list, numthreads, matchFactor, max_per_taxon, level, name):
-    """
-    Extract FASTA sequences for a specific taxon from the SAM file.
+    print_message(f"Extracting FASTA sequences for {len(taxa_dict)} taxa in a single pass...", 
+                 argvs.silent, begin_t, logfile)
     
-    Parameters:
-        sam_fn (str): Path to the SAM file
-        o (file): Output file handle
-        taxa_list (list): List of taxids to extract
-        numthreads (int): Number of threads to use
-        matchFactor (float): Minimum fraction required for a valid match
-        max_per_taxon (int): Maximum sequences to extract per taxon
-        level (str): Taxonomic level for header annotation
-        name (str): Taxonomic name for header annotation
-        
-    Returns:
-        int: Number of sequences extracted
-    """
-    # Convert parameters to strings and sanitize
-    taxa_list = [str(t).strip() for t in taxa_list]
-    level = str(level).replace(' ', '_')
-    name = str(name).replace(' ', '_')
-    
+    # Process the SAM file in parallel chunks - extracting all taxa at once
     pool = Pool(processes=numthreads)
     jobs = []
-    seq_entries = []
+    results = []
     
+    # Process the SAM file in chunks
     for chunkStart, chunkSize in chunkify(sam_fn):
-        jobs.append(pool.apply_async(TaxonomyFastaExtractWorker, 
-                                     (sam_fn, chunkStart, chunkSize, taxa_list, 
-                                      matchFactor, max_per_taxon, level, name)))
+        jobs.append(pool.apply_async(OptimizedFastaWorker, 
+                                    (sam_fn, chunkStart, chunkSize, taxa_dict, matchFactor, max_per_taxon)))
     
-    # Wait for all jobs to finish and collect sequences
-    sequences_extracted = 0
+    # Wait for all jobs to finish
     for job in jobs:
-        entries, count = job.get()
-        seq_entries.extend(entries)
-        sequences_extracted += count
-        if sequences_extracted >= max_per_taxon:
-            break
+        chunk_results = job.get()
+        results.append(chunk_results)
     
     # Clean up
     pool.close()
     
-    # Write sequences (up to max_per_taxon)
-    for entry in seq_entries[:max_per_taxon]:
-        o.write(entry)
+    # Merge results from all chunks
+    all_taxon_seqs = {}
+    for chunk_result in results:
+        for taxid, seqs in chunk_result.items():
+            if taxid not in all_taxon_seqs:
+                all_taxon_seqs[taxid] = []
+            # Add sequences, but respect the max_per_taxon limit
+            remaining = max_per_taxon - len(all_taxon_seqs[taxid])
+            if remaining > 0:
+                all_taxon_seqs[taxid].extend(seqs[:remaining])
     
-    return min(sequences_extracted, max_per_taxon)
+    # Write sequences to output file
+    total_seqs = 0
+    taxon_count = 0
+    for taxid, seqs in all_taxon_seqs.items():
+        if seqs:  # If we got any sequences for this taxon
+            taxon_count += 1
+            for seq in seqs:  # Write up to max_per_taxon
+                o.write(seq)
+                total_seqs += 1
+    
+    return taxon_count, total_seqs
 
-def TaxonomyFastaExtractWorker(filename, chunkStart, chunkSize, taxa_list, matchFactor, max_per_taxon, level, name):
+def OptimizedFastaWorker(filename, chunkStart, chunkSize, taxa_dict, matchFactor, max_per_taxon):
     """
-    Worker function to extract sequences for specific taxa from a chunk of a SAM file.
+    Worker function that processes a chunk of the SAM file and extracts sequences for all taxa.
     
     Parameters:
         filename (str): Path to the SAM file
         chunkStart (int): Starting position in the file
         chunkSize (int): Size of the chunk to process
-        taxa_list (list): List of taxids to extract sequences for
+        taxa_dict (dict): Dictionary mapping taxids to their level and name
         matchFactor (float): Minimum fraction required for a valid match
-        max_per_taxon (int): Maximum sequences to collect
-        level (str): Taxonomic level for header annotation
-        name (str): Taxonomic name for header annotation
+        max_per_taxon (int): Maximum sequences to extract per taxon
         
     Returns:
-        tuple: (seq_entries, count) - List of FASTA entries and count of sequences
+        dict: Dictionary mapping taxids to lists of their FASTA sequences
     """
-    seq_entries = []
-    count = 0
+    taxon_seqs = {}  # Dictionary to hold sequences for each taxid
     
     # Process the SAM file chunk
     f = open(filename)
@@ -1345,31 +1329,44 @@ def TaxonomyFastaExtractWorker(filename, chunkStart, chunkSize, taxa_list, match
     lines = f.read(chunkSize).splitlines()
     
     for line in lines:
-        ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
-        
-        if not (pri_aln_flag and valid_flag):
+        try:
+            ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
+            
+            if not (pri_aln_flag and valid_flag):
+                continue
+                
+            # Extract taxid from reference
+            try:
+                acc, rstart, rend, ref_taxid = ref.split('|')
+            except ValueError:
+                continue  # Skip malformed references
+            
+            # Check if this reference belongs to any of our target taxa
+            for target_taxid in taxa_dict:
+                if isin_target_taxa(ref_taxid, [target_taxid]):
+                    # Handle reverse complement if needed
+                    if int(flag) & 16:
+                        g = findall(r'\d+\w', cigr)
+                        cigr = "".join(list(reversed(g)))
+                        rseq = seqReverseComplement(rseq)
+                    
+                    # Initialize list for this taxid if needed
+                    if target_taxid not in taxon_seqs:
+                        taxon_seqs[target_taxid] = []
+                    
+                    # Only collect up to max_per_taxon sequences per taxon
+                    if len(taxon_seqs[target_taxid]) < max_per_taxon:
+                        # Create FASTA entry with taxonomy information
+                        level = taxa_dict[target_taxid]['level']
+                        name = taxa_dict[target_taxid]['name']
+                        fasta_entry = f">{rname}|{ref}:{region[0]}..{region[1]} LEVEL={level} NAME={name} TAXID={target_taxid}\n{rseq}\n"
+                        taxon_seqs[target_taxid].append(fasta_entry)
+                    break  # Found a match, no need to check other taxa
+        except Exception as e:
+            # Simply skip problematic lines
             continue
-            
-        # Extract taxid from reference
-        acc, rstart, rend, ref_taxid = ref.split('|')
-        
-        # Check if this reference belongs to the taxon we're looking for
-        if isin_target_taxa(ref_taxid, taxa_list):
-            # Handle reverse complement if needed
-            if int(flag) & 16:
-                g = findall(r'\d+\w', cigr)
-                cigr = "".join(list(reversed(g)))
-                rseq = seqReverseComplement(rseq)
-            
-            # Create FASTA entry with taxonomy information
-            fasta_entry = f">{rname}|{ref}:{region[0]}..{region[1]} LEVEL={level} NAME={name} TAXID={taxa_list[0]}\n{rseq}\n"
-            seq_entries.append(fasta_entry)
-            count += 1
-            
-            if count >= max_per_taxon:
-                break
     
-    return seq_entries, count
+    return taxon_seqs
 
 def main(args):
     """
