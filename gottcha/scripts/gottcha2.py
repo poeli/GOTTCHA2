@@ -1193,6 +1193,147 @@ def extract_fasta_from_sam(sam_fn, o, numthreads, matchFactor, max_per_ref=20):
     
     return len(all_refs), total_seqs
 
+def extract_fasta_by_taxonomy(sam_fn, full_tsv_fn, o, numthreads, matchFactor, max_per_taxon=20):
+    """
+    Extract sequences mapping to taxa from the full taxonomy report.
+    
+    For each taxon in the full report, extract up to max_per_taxon sequences.
+    
+    Parameters:
+        sam_fn (str): Path to the SAM file
+        full_tsv_fn (str): Path to the full taxonomy report file
+        o (file): Output file handle for the extracted sequences
+        numthreads (int): Number of threads to use for processing
+        matchFactor (float): Minimum fraction required for a valid match
+        max_per_taxon (int): Maximum number of sequences to extract per taxon
+        
+    Returns:
+        tuple: (taxon_count, seq_count) - Number of taxa and total sequences extracted
+    """
+    # Read the full taxonomy report to get the taxa
+    taxa_df = pd.read_csv(full_tsv_fn, sep='\t')
+    taxa_list = taxa_df[['LEVEL', 'NAME', 'TAXID']].values.tolist()
+    
+    total_seqs = 0
+    taxon_count = 0
+    
+    # Process each taxon separately to extract sequences
+    for level, name, taxid in taxa_list:
+        # Skip entries with empty notes (filtered out entries)
+        note_col = taxa_df[(taxa_df['LEVEL'] == level) & (taxa_df['NAME'] == name) & (taxa_df['TAXID'] == taxid)]['NOTE'].values[0]
+        if note_col and 'Filtered out' in note_col:
+            continue
+            
+        taxon_count += 1
+        print_message(f"  Extracting sequences for {level} {name} (TAXID:{taxid})...", 
+                     argvs.debug, begin_t, logfile)
+        
+        # Extract sequences for this taxon
+        read_count = extract_fasta_for_taxon(sam_fn, o, [taxid], numthreads, matchFactor, max_per_taxon, level, name)
+        total_seqs += read_count
+        
+        if argvs.debug:
+            print_message(f"  Extracted {read_count} sequences for {level} {name}", 
+                         argvs.debug, begin_t, logfile)
+    
+    return taxon_count, total_seqs
+
+def extract_fasta_for_taxon(sam_fn, o, taxa_list, numthreads, matchFactor, max_per_taxon, level, name):
+    """
+    Extract FASTA sequences for a specific taxon from the SAM file.
+    
+    Parameters:
+        sam_fn (str): Path to the SAM file
+        o (file): Output file handle
+        taxa_list (list): List of taxids to extract
+        numthreads (int): Number of threads to use
+        matchFactor (float): Minimum fraction required for a valid match
+        max_per_taxon (int): Maximum sequences to extract per taxon
+        level (str): Taxonomic level for header annotation
+        name (str): Taxonomic name for header annotation
+        
+    Returns:
+        int: Number of sequences extracted
+    """
+    pool = Pool(processes=numthreads)
+    jobs = []
+    seq_entries = []
+    
+    for chunkStart, chunkSize in chunkify(sam_fn):
+        jobs.append(pool.apply_async(TaxonomyFastaExtractWorker, 
+                                     (sam_fn, chunkStart, chunkSize, taxa_list, 
+                                      matchFactor, max_per_taxon, level, name)))
+    
+    # Wait for all jobs to finish and collect sequences
+    sequences_extracted = 0
+    for job in jobs:
+        entries, count = job.get()
+        seq_entries.extend(entries)
+        sequences_extracted += count
+        if sequences_extracted >= max_per_taxon:
+            break
+    
+    # Clean up
+    pool.close()
+    
+    # Write sequences (up to max_per_taxon)
+    for entry in seq_entries[:max_per_taxon]:
+        o.write(entry)
+    
+    return min(sequences_extracted, max_per_taxon)
+
+def TaxonomyFastaExtractWorker(filename, chunkStart, chunkSize, taxa_list, matchFactor, max_per_taxon, level, name):
+    """
+    Worker function to extract sequences for specific taxa from a chunk of a SAM file.
+    
+    Parameters:
+        filename (str): Path to the SAM file
+        chunkStart (int): Starting position in the file
+        chunkSize (int): Size of the chunk to process
+        taxa_list (list): List of taxids to extract sequences for
+        matchFactor (float): Minimum fraction required for a valid match
+        max_per_taxon (int): Maximum sequences to collect
+        level (str): Taxonomic level for header annotation
+        name (str): Taxonomic name for header annotation
+        
+    Returns:
+        tuple: (seq_entries, count) - List of FASTA entries and count of sequences
+    """
+    seq_entries = []
+    count = 0
+    
+    # Process the SAM file chunk
+    f = open(filename)
+    f.seek(chunkStart)
+    lines = f.read(chunkSize).splitlines()
+    
+    for line in lines:
+        ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_flag = parse(line, matchFactor)
+        
+        if not (pri_aln_flag and valid_flag):
+            continue
+            
+        # Extract taxid from reference
+        acc, rstart, rend, ref_taxid = ref.split('|')
+        
+        # Check if this reference belongs to the taxon we're looking for
+        if isin_target_taxa(ref_taxid, taxa_list):
+            # Handle reverse complement if needed
+            if int(flag) & 16:
+                g = findall(r'\d+\w', cigr)
+                cigr = "".join(list(reversed(g)))
+                rseq = seqReverseComplement(rseq)
+            
+            # Create FASTA entry with taxonomy information
+            fasta_entry = f">{rname}|{ref}:{region[0]}..{region[1]} LEVEL={level} NAME={name} TAXID={taxa_list[0]}\n{rseq}\n"
+            seq_entries.append(fasta_entry)
+            count += 1
+            
+            if count >= max_per_taxon:
+                break
+    
+    return seq_entries, count
+
 def main(args):
     """
     Main execution function for GOTTCHA2.
@@ -1337,9 +1478,34 @@ def main(args):
         read_count = extract_read_from_sam(os.path.abspath(samfile), out_fp, taxa_list, argvs.threads, argvs.matchFactor)
         print_message( f"Done extracting {read_count} valid reads to '{outfile}'.", argvs.silent, begin_t, logfile )
     elif argvs.extractFasta is not None:
-        print_message( f"Extracting up to {argvs.extractFasta} sequences per reference to FASTA format...", argvs.silent, begin_t, logfile )
-        ref_count, seq_count = extract_fasta_from_sam(os.path.abspath(samfile), out_fp, argvs.threads, argvs.matchFactor, argvs.extractFasta)
-        print_message( f"Done extracting {seq_count} sequences from {ref_count} references to '{outfile}'.", argvs.silent, begin_t, logfile )
+        if argvs.sam:
+            # First process the SAM file to generate taxonomy
+            print_message("Loading SAM file...", argvs.silent, begin_t, logfile)
+            (res, mapped_r_cnt) = process_sam_file(os.path.abspath(samfile), argvs.threads, argvs.matchFactor)
+            print_message(f"Done processing SAM file. {mapped_r_cnt} qualified mapped reads loaded.", argvs.silent, begin_t, logfile)
+            
+            if mapped_r_cnt:
+                res_df = aggregate_taxonomy(res, argvs.relAbu, argvs.dbLevel, argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
+                print_message("Done taxonomy rolling up.", argvs.silent, begin_t, logfile)
+                
+                if not len(res_df):
+                    print_message("No qualified taxonomy profiled.", argvs.silent, begin_t, logfile)
+                else:
+                    # Generate the full taxonomy file
+                    full_report_file = f"{argvs.outdir}/{argvs.prefix}.full.tsv"
+                    with open(full_report_file, 'w') as full_rep:
+                        generaete_taxonomy_file(res_df, full_rep, full_report_file, "tsv")
+                    
+                    # Extract FASTA sequences based on the taxonomy entries
+                    print_message(f"Extracting up to {argvs.extractFasta} FASTA sequences per taxon...", argvs.silent, begin_t, logfile)
+                    taxon_count, seq_count = extract_fasta_by_taxonomy(os.path.abspath(samfile), full_report_file, 
+                                                                       out_fp, argvs.threads, argvs.matchFactor, argvs.extractFasta)
+                    print_message(f"Done extracting {seq_count} sequences from {taxon_count} taxa to '{outfile}'.", 
+                                 argvs.silent, begin_t, logfile)
+            else:
+                print_message("No qualified mapped reads found. Cannot extract sequences.", argvs.silent, begin_t, logfile)
+        else:
+            print_message("Error: --extractFasta requires a SAM file.", argvs.silent, begin_t, logfile, errorout=1)
     else:
         print_message( "Loading SAM file...", argvs.silent, begin_t, logfile )
         (res, mapped_r_cnt) = process_sam_file( os.path.abspath(samfile), argvs.threads, argvs.matchFactor)
