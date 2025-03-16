@@ -832,14 +832,21 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
             'LINEAR_COV', 'LINEAR_COV_MAPPED_SIG', 'BEST_LINEAR_COV', 'MAPPED_SIG_LENGTH', 'TOL_SIG_LENGTH',
             'ABUNDANCE', 'ZSCORE', 'NOTE']
 
+    # Ensure all string columns don't contain tab characters (replace with space)
+    for col in ['LEVEL', 'NAME', 'NOTE']:
+        if col in rep_df.columns:
+            rep_df[col] = rep_df[col].astype(str).str.replace('\t', ' ')
+
     qualified_idx = (rep_df['NOTE']=="")
     qualified_df = rep_df.loc[qualified_idx, cols[:10]]
 
     sep = ',' if fmt=='csv' else '\t'
+    
     # save full report
-    rep_df[cols].to_csv(fullreport_o, index=False, sep=sep, float_format='%.6f')
+    rep_df[cols].to_csv(fullreport_o, index=False, sep=sep, float_format='%.6f', quoting=2 if fmt=='csv' else 0)
+    
     # save summary
-    qualified_df.to_csv(o, index=False, sep=sep, float_format='%.6f')
+    qualified_df.to_csv(o, index=False, sep=sep, float_format='%.6f', quoting=2 if fmt=='csv' else 0)
 
     return True
 
@@ -1210,8 +1217,23 @@ def extract_fasta_by_taxonomy(sam_fn, full_tsv_fn, o, numthreads, matchFactor, m
     Returns:
         tuple: (taxon_count, seq_count) - Number of taxa and total sequences extracted
     """
-    # Read the full taxonomy report to get the taxa
-    taxa_df = pd.read_csv(full_tsv_fn, sep='\t')
+    try:
+        # Read the full taxonomy report with more flexible parsing
+        taxa_df = pd.read_csv(full_tsv_fn, sep='\t', quoting=3, engine='python')
+        print_message(f"Successfully loaded taxonomy profile with {len(taxa_df)} entries", 
+                    argvs.debug, begin_t, logfile)
+    except Exception as e:
+        print_message(f"Error reading taxonomy file: {e}", argvs.silent, begin_t, logfile)
+        # Fallback to more permissive reading
+        try:
+            taxa_df = pd.read_csv(full_tsv_fn, sep='\t', error_bad_lines=False, warn_bad_lines=True)
+            print_message(f"Loaded taxonomy profile with {len(taxa_df)} entries using fallback parser", 
+                        argvs.debug, begin_t, logfile)
+        except Exception as e2:
+            print_message(f"Failed to read taxonomy file even with fallback parser: {e2}", 
+                        argvs.silent, begin_t, logfile, errorout=1)
+    
+    # Extract the taxon information
     taxa_list = taxa_df[['LEVEL', 'NAME', 'TAXID']].values.tolist()
     
     total_seqs = 0
@@ -1219,22 +1241,32 @@ def extract_fasta_by_taxonomy(sam_fn, full_tsv_fn, o, numthreads, matchFactor, m
     
     # Process each taxon separately to extract sequences
     for level, name, taxid in taxa_list:
-        # Skip entries with empty notes (filtered out entries)
-        note_col = taxa_df[(taxa_df['LEVEL'] == level) & (taxa_df['NAME'] == name) & (taxa_df['TAXID'] == taxid)]['NOTE'].values[0]
-        if note_col and 'Filtered out' in note_col:
-            continue
+        try:
+            # Skip entries with empty notes (filtered out entries)
+            mask = (taxa_df['LEVEL'] == level) & (taxa_df['NAME'] == name) & (taxa_df['TAXID'] == taxid)
+            if not any(mask):
+                continue
+                
+            notes = taxa_df.loc[mask, 'NOTE'].values[0]
+            if pd.notna(notes) and 'Filtered out' in str(notes):
+                continue
+                
+            taxon_count += 1
+            if argvs.debug:
+                print_message(f"  Extracting sequences for {level} {name} (TAXID:{taxid})...", 
+                            False, begin_t, logfile)
             
-        taxon_count += 1
-        print_message(f"  Extracting sequences for {level} {name} (TAXID:{taxid})...", 
-                     argvs.debug, begin_t, logfile)
-        
-        # Extract sequences for this taxon
-        read_count = extract_fasta_for_taxon(sam_fn, o, [taxid], numthreads, matchFactor, max_per_taxon, level, name)
-        total_seqs += read_count
-        
-        if argvs.debug:
-            print_message(f"  Extracted {read_count} sequences for {level} {name}", 
-                         argvs.debug, begin_t, logfile)
+            # Extract sequences for this taxon
+            read_count = extract_fasta_for_taxon(sam_fn, o, [str(taxid)], numthreads, matchFactor, max_per_taxon, level, name)
+            total_seqs += read_count
+            
+            if argvs.debug:
+                print_message(f"  Extracted {read_count} sequences for {level} {name}", 
+                            False, begin_t, logfile)
+        except Exception as e:
+            print_message(f"Error processing taxon {level} {name} (TAXID:{taxid}): {e}", 
+                        argvs.debug, begin_t, logfile)
+            continue
     
     return taxon_count, total_seqs
 
@@ -1255,6 +1287,11 @@ def extract_fasta_for_taxon(sam_fn, o, taxa_list, numthreads, matchFactor, max_p
     Returns:
         int: Number of sequences extracted
     """
+    # Convert parameters to strings and sanitize
+    taxa_list = [str(t).strip() for t in taxa_list]
+    level = str(level).replace(' ', '_')
+    name = str(name).replace(' ', '_')
+    
     pool = Pool(processes=numthreads)
     jobs = []
     seq_entries = []
