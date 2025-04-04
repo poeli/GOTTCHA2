@@ -181,8 +181,8 @@ def _taxid2lineage(tid: Union[int, str],
         idx = ranks.index( major_level_to_abbr[orig_rank] )
     # if not, find the next major rank
     else:
-        nmtid = taxid2nearestMajorTaxid( tid )
-        nmrank = taxid2rank( nmtid )
+        nmtid = taxid2nearestMajorTaxid(tid)
+        nmrank = taxid2rank(nmtid)
         if nmrank == "root":
             idx = 7
         else:
@@ -202,7 +202,7 @@ def _taxid2lineage(tid: Union[int, str],
     if print_strain==True:
         if orig_rank == "strain":
             info["strain"]["name"]  = str_name
-            info["strain"]["taxid"] = tid
+            info["strain"]["taxid"] = _checkTaxonomy(tid_orig)
 
     tidLineageDict[tid] = info
     return info

@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.8.12"
+__version__   = "2.1.8.13"
 __date__      = "2018/10/07"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
@@ -661,7 +661,7 @@ def group_refs_to_strains(r):
         'RLEN':'sum' # length of this signature fragments (mapped)
     }).reset_index()
     # total length of signatures
-    str_df['TS'] = str_df['TAXID'].apply(lambda x: db_stats[x])
+    str_df['TS'] = str_df['TAXID'].map(df_stats['TotalLength'])
     str_df['bDOC'] = str_df['MB']/str_df['TS'] # bDOC: best Depth of Coverage of a strain
     str_df['bLC'] = str_df['LL']/str_df['TS'] # bLC:  best linear coverage of a strain
     str_df['RD'] = str_df['MB']/str_df['TS'] # roll-up DoC
@@ -679,6 +679,11 @@ def group_refs_to_strains(r):
         "bLC":  "BEST_LINEAR_COV"
     }, inplace=True)
 
+    # get genome size
+    str_df['GENOME_SIZE'] = str_df['TAXID'].map(df_stats['GenomeSize'])
+    str_df['GENOME_COUNT'] = 1
+
+    # estimate z-score
     str_df['ZSCORE'] = str_df.apply(lambda x: pile_lvl_zscore(x.TOTAL_BP_MAPPED, x.TOL_SIG_LENGTH, x.LINEAR_LEN), axis=1)
 
     return str_df
@@ -705,7 +710,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
     """
     major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7,"strain":8}
 
-    # roll up references to strains
+    # agg signature fragments to strains
     str_df = group_refs_to_strains(r)
     # produce columns for the final report at each ranks
     rep_df = pd.DataFrame()
@@ -718,14 +723,30 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
     if mz > 0:
         qualified_idx &= (str_df['ZSCORE'] <= mz)
 
-    for rank in sorted(major_ranks, key=major_ranks.__getitem__):
-        try:
-            str_df['LVL_NAME'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['name'])
-            str_df['LVL_TAXID'] = str_df['TAXID'].apply(lambda x: gt.taxid2lineageDICT(x, True, True)[rank]['taxid'])
-            str_df['LEVEL'] = rank
-        except Exception as e:
-            logging.error(f"Error processing rank {rank}: {e}. Please verify that your taxonomy file matches the expected database.")
-            sys.exit(1)
+    # add taxonomic lineage info
+    ranks = list(major_ranks.keys())[::-1]
+
+    def get_taxid_lineage(taxid):
+        """get taxid lineage with {rank}_names and {rank}_taxids"""
+        lineage = gt.taxid2lineageDICT(taxid).values()
+        return [d['name'] for d in lineage]+[d['taxid'] for d in lineage]
+
+    try:
+        cols = [f'{r}_name' for r in ranks]+[f'{r}_taxid' for r in ranks]
+        str_df[cols] = str_df['TAXID'].map(get_taxid_lineage).to_list()
+    except Exception as e:
+        logging.error(f"Error processing rank {ranks}: {e}. Please verify that your taxonomy file matches the expected database.")
+        sys.exit(1)
+
+    # iterate through ranks to get index and value
+    for idx, rank in enumerate(ranks):
+        str_df['LEVEL'] = rank
+        str_df[['LVL_NAME', 'LVL_TAXID']] = str_df[[f'{rank}_name', f'{rank}_taxid']]
+
+        if rank=='superkingdom':
+            str_df[['PARENT_NAME', 'PARENT_TAXID']] = ['root', '1']
+        else:
+            str_df[['PARENT_NAME', 'PARENT_TAXID']] = str_df[[f'{ranks[idx+1]}_name', f'{ranks[idx+1]}_taxid']]
 
         # rollup strains that make cutoffs
         lvl_df = pd.DataFrame()
@@ -736,9 +757,20 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
             lvl_df = str_df[qualified_idx].groupby(['LVL_NAME']).agg({
                 'LEVEL':'first',
                 'LVL_TAXID':'first',
-                'TOTAL_BP_MAPPED': 'sum', 'READ_COUNT': 'sum', 'TOTAL_BP_MISMATCH': 'sum',
-                'LINEAR_LEN': 'sum', 'MAPPED_SIG_LENGTH': 'sum', 'TOL_SIG_LENGTH': 'sum',
-                'ROLLUP_DOC': 'sum', 'BEST_DOC': 'max', 'BEST_LINEAR_COV': 'max', 'ZSCORE': 'min',
+                'PARENT_NAME':'first',
+                'PARENT_TAXID':'first',
+                'TOTAL_BP_MAPPED': 'sum', 
+                'READ_COUNT': 'sum', 
+                'TOTAL_BP_MISMATCH': 'sum',
+                'LINEAR_LEN': 'sum', 
+                'MAPPED_SIG_LENGTH': 'sum', 
+                'TOL_SIG_LENGTH': 'sum',
+                'ROLLUP_DOC': 'sum', 
+                'BEST_DOC': 'max', 
+                'BEST_LINEAR_COV': 'max', 
+                'ZSCORE': 'min',
+                'GENOME_COUNT': 'count', 
+                'GENOME_SIZE': 'sum'
             }).reset_index().copy()
 
         lvl_df['ABUNDANCE'] = lvl_df[abu_col]
@@ -751,7 +783,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
             lvl_df['NOTE'] = f"Not shown ({rank}-result biased); "
 
         # concart ranks-dataframe to the report-dataframe
-        rep_df = pd.concat([rep_df, lvl_df.sort_values('ABUNDANCE', ascending=False)], sort=False)
+        rep_df = pd.concat([lvl_df.sort_values('ABUNDANCE', ascending=True), rep_df], ignore_index=True)
 
     rep_df["LINEAR_COV"] = rep_df["LINEAR_LEN"]/rep_df["TOL_SIG_LENGTH"]
     rep_df["LINEAR_COV_MAPPED_SIG"] = rep_df["LINEAR_LEN"]/rep_df["MAPPED_SIG_LENGTH"]
@@ -823,8 +855,9 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
             'TOTAL_BP_MISMATCH', 'LINEAR_LEN', 'LINEAR_DOC', 'ROLLUP_DOC', 'REL_ABUNDANCE',
-            'LINEAR_COV', 'LINEAR_COV_MAPPED_SIG', 'BEST_LINEAR_COV', 'MAPPED_SIG_LENGTH', 'TOL_SIG_LENGTH',
-            'ABUNDANCE', 'ZSCORE', 'NOTE']
+            'PARENT_NAME', 'PARENT_TAXID', 'LINEAR_COV', 'LINEAR_COV_MAPPED_SIG', 'BEST_LINEAR_COV', 
+            'MAPPED_SIG_LENGTH', 'TOL_SIG_LENGTH', 'ABUNDANCE', 'ZSCORE', 'GENOME_COUNT', 
+            'GENOME_SIZE', 'NOTE']
 
     qualified_idx = (rep_df['NOTE']=="")
     qualified_df = rep_df.loc[qualified_idx, cols[:10]]
@@ -1017,7 +1050,7 @@ def loadDatabaseStats(db_stats_file):
         db_stats_file (str): Path to the database stats file
         
     Returns:
-        dict: Dictionary with taxids as keys and signature lengths as values
+        pd.Dataframe: df indexed with taxid, contains signature lengths and genome sizes
         
     Note:
         The input stats file is an 8-column tab-delimited file with:
@@ -1029,19 +1062,39 @@ def loadDatabaseStats(db_stats_file):
         6. Max
         7. Min
         8. TotalLength
+        9. GenomeSize
     """
-    db_stats = {}
 
-    with open(db_stats_file) as f:
-        for line in f:
-            fields = line.split("\t")
-            major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7, "strain":8}
-            if fields[0] in major_ranks:
-                db_stats[fields[2]] = int(fields[7])
-            else:
-                continue
+    # Set header to None to support files without headers
+    df_stats = pd.read_csv(db_stats_file,
+                            low_memory=False,
+                            sep='\t',
+                            header=None,
+                            usecols=[0, 2, 7, 8],
+                            names=['DB_level', 'Taxid', 'TotalLength', 'GenomeSize'],
+                            index_col='Taxid')
 
-    return db_stats
+    df_stats['TotalLength'] = pd.to_numeric(df_stats['TotalLength'], errors='coerce')
+    df_stats['TotalLength'] = df_stats['TotalLength'].fillna(0).astype(int)
+
+    # Check if the 'GenomeSize' item is number, if not, add it with default value 0
+    gsize = df_stats.iloc[2,-1]
+
+    logging.info(f"Genome size in the database stats file: {gsize}")
+
+    # try to convert the 'GenomeSize' column to int, and raise an error if it fails
+    try:
+        if isinstance(gsize, (int, float, complex)) and not isinstance(gsize, bool):
+            df_stats['GenomeSize'] = 0
+        else:
+            # Convert TotalLength and GenomeSize columns to numeric first, 
+            # coercing any non-numeric values to NaN
+            df_stats['GenomeSize'] = pd.to_numeric(df_stats['GenomeSize'], errors='coerce')
+            df_stats['GenomeSize'] = df_stats['GenomeSize'].fillna(0).astype(int)
+    except ValueError as e:
+        sys.exit(f"[ERROR] Genome size in the database stats file is not a number: {e}")
+
+    return df_stats
 
 def print_message(msg, silent, start, logfile, errorout=0):
     """
@@ -1098,7 +1151,7 @@ def main(args):
     global argvs
     global logfile
     global begin_t
-    global db_stats
+    global df_stats
     argvs = parse_params( __version__, args )
     begin_t  = time.time()
     sam_fp   = argvs.sam[0] if argvs.sam else ""
@@ -1185,7 +1238,7 @@ def main(args):
     #load database stats
     print_message( "Loading database stats...", argvs.silent, begin_t, logfile )
     if os.path.isfile( argvs.database + ".stats" ):
-        db_stats = loadDatabaseStats(argvs.database+".stats")
+        df_stats = loadDatabaseStats(argvs.database+".stats")
     else:
         sys.exit( "[%s] ERROR: %s not found.\n" % (time_spend(begin_t), argvs.database+".stats") )
     print_message( "Done.", argvs.silent, begin_t, logfile )
