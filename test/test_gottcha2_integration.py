@@ -101,7 +101,9 @@ class TestGottcha2Integration(unittest.TestCase):
         mock_df.str.split.return_value.expand = True
         
         # Set up a mock database stats
-        gottcha2.db_stats = {'12345': 1000, '67890': 500}
+        gottcha2.df_stats = pd.DataFrame([['species','12345',1000,10000],
+                                          ['species','67890',500,5000]
+                                         ], columns=['DB_level', 'Taxid', 'TotalLength', 'GenomeSize'])
         
         # Test the function with mock data
         test_data = {
