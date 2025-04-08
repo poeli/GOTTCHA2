@@ -1365,7 +1365,7 @@ def main(args):
             else:
                 print_message( f"[ERROR] No taxa found in the extraction list.", argvs.silent, begin_t, logfile, errorout=1 )
         print_message( f"Extracting reads mapped to taxa: {taxa_list}...", argvs.silent, begin_t, logfile )
-        read_count = extract_read_from_sam(os.path.abspath(samfile), out_fp, taxa_list, argvs.threads, argvs.matchFactor)
+        read_count = extract_read_from_sam(os.path.abspath(samfile), out_fp, taxa_list, argvs.threads, argvs.matchFactor, excluded_acc_list)
         print_message( f"Done extracting {read_count} valid reads to '{outfile}'.", argvs.silent, begin_t, logfile )
     else:
         print_message( "Processing SAM file...", argvs.silent, begin_t, logfile )
