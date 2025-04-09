@@ -1224,7 +1224,8 @@ def extract_fasta_by_taxonomy(sam_fn, full_tsv_fn, o, numthreads, matchFactor, m
                              sep='\t', 
                              engine='python',
                              quoting=3,
-                             on_bad_lines='skip')
+                             on_bad_lines='skip',
+                             dtype={'NOTE': str})
         
         print_message(f"Successfully loaded taxonomy profile with {len(taxa_df)} entries", 
                     argvs.silent, begin_t, logfile)
@@ -1585,8 +1586,9 @@ def main(args):
                 else:
                     # Generate the full taxonomy file
                     full_report_file = f"{argvs.outdir}/{argvs.prefix}.full.tsv"
-                    with open(full_report_file, 'w') as full_rep:
-                        generaete_taxonomy_file(res_df, full_rep, full_report_file, "tsv")
+                    summary_report_file = f"{argvs.outdir}/{argvs.prefix}.tsv"
+                    with open(full_report_file, 'w') as full_rep, open(summary_report_file, 'w') as summary_rep:
+                        generaete_taxonomy_file(res_df, summary_rep, full_rep, "tsv")
                     
                     # Extract FASTA sequences based on the taxonomy entries
                     print_message(f"Extracting up to {argvs.extractFasta} FASTA sequences per taxon...", argvs.silent, begin_t, logfile)
