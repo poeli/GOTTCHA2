@@ -41,7 +41,6 @@ def gottcha2_command():
     elif args[0] == "version":
         print(f"{gottcha2.__version__}")
     elif args[0] == "extract":
-        args += ['--skipRemoveMultiple']
         gottcha2.main(args[1:])
 
     else:
