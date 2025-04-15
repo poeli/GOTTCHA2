@@ -88,36 +88,29 @@ def parse_params(ver, args):
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
                     help="Mismatch penalty for the aligner. [default: 10]")
 
-    p.add_argument(
-        '-e', '--extract', metavar='TAXON[,TAXON2,...]', type=str, default=None,
-        help=(
-            "Extract mapped reads for specific taxa to a FASTA or FASTQ file.\n"
-            "You can specify taxa in one of the following ways:\n"
-            "  - Comma-separated list of taxon IDs:  e.g., -e '1234,5678'\n"
-            "  - File containing a list of taxon IDs (one per line):  e.g., -e '@taxids.txt'\n"
-            "  - File with read limits and format: e.g., -e '@taxids.txt:1000:fasta'\n"
-            "    This limits the number of reads extracted per taxon to <NUMBER> and outputs in <FORMAT> (fasta or fastq).\n"
-            "  Use 'all' to extract all matching taxa/reads.\n"
-            "[default: None]"
-        )
+    p.add_argument('-e', '--extract', metavar='TAXON[,TAXON2,...]', type=str, default=None,
+                    help=(
+                        "Extract mapped reads for specific taxa to a FASTA or FASTQ file.\n"
+                        "You can specify taxa in one of the following ways:\n"
+                        "  - Comma-separated list of taxon IDs:  e.g., -e '1234,5678'\n"
+                        "  - File containing a list of taxon IDs (one per line):  e.g., -e '@taxids.txt'\n"
+                        "  - File with read limits and format: e.g., -e '@taxids.txt:1000:fasta'\n"
+                        "    This limits the number of reads extracted per taxon to <NUMBER> and outputs in <FORMAT> (fasta or fastq).\n"
+                        "  Use 'all' to extract all matching taxa/reads.\n"
+                        "[default: None]"
+                    )
     )
 
-    p.add_argument(
-        '-ef', '--extractFullRef', action='store_true',
-        help=(
-            "Extract up to 20 sequences per reference from the SAM file and save them to a FASTA file. "
-            "Equivalent to using: -e 'all:20:fasta'."
-        )
+    p.add_argument('-ef', '--extractFullRef', action='store_true',
+                    help=(
+                        "Extract up to 20 sequences per reference from the SAM file and save them to a FASTA file. "
+                        "Equivalent to using: -e 'all:20:fasta'."
+                    )
     )
 
-    p.add_argument(
-        '-eo', '--extractOnly', action='store_true',
-        help='While --extract is specified, this option will only extract the reads and not perform any further processing of the SAM file.'
+    p.add_argument('-eo', '--extractOnly', action='store_true',
+                    help='While --extract is specified, this option will only extract the reads and not perform any further processing of the SAM file.'
     )
-
-    p.add_argument('-ef', '--extractFasta', metavar='<INT>', type=int, nargs='?', const=20, default=None,
-                    help="""Extract up to N sequences (default: 20) per reference in the SAM file to a FASTA file.
-                    Use without a number to extract 20 sequences per reference.""")
 
     p.add_argument( '-fm','--format', metavar='[STR]', type=str, default='tsv',
                     choices=['tsv','csv','biom'],
@@ -188,8 +181,8 @@ def parse_params(ver, args):
         print( ver )
         sys.exit(0)
 
-    if args_parsed.extract and args_parsed.extractFasta:
-        p.error( '--extract and --extractFasta are incompatible options.' )
+    if args_parsed.extract and args_parsed.extractFullRef:
+        p.error( '--extract and --extractFullRef are incompatible options.' )
 
     if not args_parsed.database:
         p.error( '--database option is missing.' )
@@ -578,103 +571,6 @@ def process_sam_file(sam_fn, numthreads, matchFactor, excluded_acc_list=None):
             mapped_reads += result[k]["MR"]
 
     return result, mapped_reads, tol_alignment_count, tol_invalid_match_count, tol_exclude_acc_count
-
-def isin_target_taxa(taxid, taxa_list):
-    """
-    Check if one taxid is a descendant of another in the taxonomy tree.
-    
-    Parameters:
-        taxid (str): The taxid to check
-        target_taxa (list): The list of target taxa to check
-        
-    Returns:
-        bool: True if taxid is in target taxa, False otherwise
-    """
-    fullLineage = gt.taxid2fullLineage(taxid, space2underscore=False)
-    for target in taxa_list:
-        if f"|{target}|" in fullLineage:
-            return True
-        
-    return False
-
-def extract_read_from_sam(sam_fn, o, taxa_list, numthreads, matchFactor, excluded_acc_list):
-    """
-    Extract reads from a SAM file that map to a specific taxid or its descendants.
-    
-    Processes the SAM file in parallel chunks and writes matching reads in FASTQ format
-    to the provided output file.
-    
-    Parameters:
-        sam_fn (str): Path to the SAM file
-        o (file): Output file handle to write extracted reads
-        taxa_str (str): Taxanomy string to extract reads for (including descendants)
-        numthreads (int): Number of parallel processes to use
-        matchFactor (float): Minimum fraction required for a valid match
-        
-    Returns:
-        None: Results are written directly to the output file
-    """
-    pool = Pool(processes=numthreads)
-    jobs = []
-    total_read_count = 0
-
-    for chunkStart,chunkSize in chunkify(sam_fn):
-        jobs.append( pool.apply_async(ReadExtractWorker, (sam_fn,chunkStart,chunkSize,taxa_list,matchFactor,excluded_acc_list)) )
-
-    #wait for all jobs to finish
-    for job in jobs:
-        outread, read_count = job.get()
-        total_read_count += read_count
-        o.write(outread)
-        o.flush()
-
-    #clean up
-    pool.close()
-
-    return total_read_count
-
-def ReadExtractWorker(filename, chunkStart, chunkSize, taxa_list, matchFactor, excluded_acc_list):
-    """
-    Worker function to extract reads from a chunk of SAM file.
-    
-    Processes a chunk of SAM file and extracts reads that map to a specific taxid
-    or its descendants, formatting them as FASTQ entries.
-    
-    Parameters:
-        filename (str): Path to the SAM file
-        chunkStart (int): Byte position to start reading
-        chunkSize (int): Number of bytes to read
-        taxa_str (str): Taxid to filter reads for
-        matchFactor (float): Minimum fraction required for a valid match
-        
-    Returns:
-        str: FASTQ-formatted string containing all matching reads
-    """
-    read_count = 0
-    # output
-    readstr=""
-    # processing alignments in SAM format
-    f = open( filename )
-    f.seek(chunkStart)
-    lines = f.read(chunkSize).splitlines()
-    for line in lines:
-        ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
-
-        if not (pri_aln_flag and valid_match_flag and valid_acc_flag): continue
-
-        acc, start, stop, t = ref.split('|')
-
-        if int(flag) & 16:
-            g = findall(r'\d+\w', cigr)
-            cigr = "".join(list(reversed(g)))
-            rseq = seqReverseComplement(rseq)
-            rq = rq[::-1]
-
-        if isin_target_taxa(t, taxa_list):
-            readstr += f"@{rname} {ref}:{region[0]}..{region[1]} {cigr} NM:i:{nm}\n{rseq}\n+\n{rq}\n"
-            read_count += 1
-    
-    return readstr, read_count
 
 def extract_sequences_by_taxonomy(sam_fn, 
                                   taxa_dict, 
@@ -1389,27 +1285,14 @@ def loadDatabaseStats(db_stats_file):
                             header=None,
                             usecols=[0, 2, 7, 8],
                             names=['DB_level', 'Taxid', 'TotalLength', 'GenomeSize'],
+                            dtype={'DB_level': str, 'Taxid': str},
                             index_col='Taxid')
 
     df_stats['TotalLength'] = pd.to_numeric(df_stats['TotalLength'], errors='coerce')
     df_stats['TotalLength'] = df_stats['TotalLength'].fillna(0).astype(int)
 
-    # Check if the 'GenomeSize' item is number, if not, add it with default value 0
-    gsize = df_stats.iloc[2,-1]
-
-    logging.debug(f"Genome size in the database stats file: {gsize}")
-
-    # try to convert the 'GenomeSize' column to int, and raise an error if it fails
-    try:
-        if not isinstance(gsize, int):
-            df_stats['GenomeSize'] = 0
-        else:
-            # Convert TotalLength and GenomeSize columns to numeric first, 
-            # coercing any non-numeric values to NaN
-            df_stats['GenomeSize'] = pd.to_numeric(df_stats['GenomeSize'], errors='coerce')
-            df_stats['GenomeSize'] = df_stats['GenomeSize'].fillna(0).astype(int)
-    except ValueError as e:
-        sys.exit(f"[ERROR] Genome size in the database stats file is not a number: {e}")
+    df_stats['GenomeSize'] = pd.to_numeric(df_stats['GenomeSize'], errors='coerce')
+    df_stats['GenomeSize'] = df_stats['GenomeSize'].fillna(0).astype(int)
 
     return df_stats
 
@@ -1613,14 +1496,13 @@ def main(args):
     print_message( f"    Abundance        : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
     print_message( f"    Output path      : {argvs.outdir}",      argvs.silent, begin_t, logfile )
     print_message( f"    Prefix           : {argvs.prefix}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Extract taxid    : {argvs.extract}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Extract seqs     : {argvs.extract}",     argvs.silent, begin_t, logfile )
     print_message( f"    Threads          : {argvs.threads}",     argvs.silent, begin_t, logfile )
     print_message( f"    Minimal L_DOC    : {argvs.minCov}",      argvs.silent, begin_t, logfile )
     print_message( f"    Minimal L_LEN    : {argvs.minLen}",      argvs.silent, begin_t, logfile )
     print_message( f"    Minimal reads    : {argvs.minReads}",    argvs.silent, begin_t, logfile )
     print_message( f"    Minimal mFactor  : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
     print_message( f"    Maximal zScore   : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
-    print_message( f"    Extract FASTA    : {argvs.extractFasta}", argvs.silent, begin_t, logfile )
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
