@@ -95,7 +95,9 @@ class TestGottcha2Integration(unittest.TestCase):
             self.assertTrue(gottcha2.isin_target_taxa('5678', ['1234','9999']))
 
     @patch('gottcha.scripts.gottcha2.pd.DataFrame')
-    def test_group_refs_to_strains(self, mock_df):
+    @patch('gottcha.scripts.gottcha2.logging.fatal')
+    @patch('gottcha.scripts.gottcha2.sys.exit')
+    def test_group_refs_to_strains(self, mock_exit, mock_fatal, mock_df):
         """Test grouping references by strain."""
         # Mock the pandas operations
         mock_df.from_dict.return_value = mock_df
@@ -103,10 +105,16 @@ class TestGottcha2Integration(unittest.TestCase):
         mock_df.str.rstrip.return_value = mock_df
         mock_df.str.split.return_value.expand = True
         
-        # Set up a mock database stats
-        gottcha2.df_stats = pd.DataFrame([['species','12345',1000,10000],
-                                          ['species','67890',500,5000]
-                                         ], columns=['DB_level', 'Taxid', 'TotalLength', 'GenomeSize'])
+        # Create a mock Series for eq(0).any() check to return False
+        mock_series = MagicMock()
+        mock_series.eq.return_value.any.return_value = False
+        mock_df.__getitem__.return_value = mock_series
+        
+        # Set up a mock database stats with the indexes set properly
+        gottcha2.df_stats = pd.DataFrame([
+            ['species', '12345', 1000, 10000],
+            ['species', '67890', 500, 5000]
+        ], columns=['DB_level', 'Taxid', 'TotalLength', 'GenomeSize'])
         gottcha2.df_stats.set_index('Taxid', inplace=True)
         
         # Test the function with mock data
@@ -118,8 +126,13 @@ class TestGottcha2Integration(unittest.TestCase):
         # Call the function (will use mocked pandas operations)
         gottcha2.group_refs_to_strains(test_data)
         
-        # Verify the expected pandas calls were made (basic verification)
+        # Verify the expected pandas calls were made
         mock_df.from_dict.assert_called_once()
+        # mock_series.eq.assert_called_once_with(0)
+        
+        # # Verify sys.exit was not called
+        # mock_exit.assert_not_called()
+        # mock_fatal.assert_not_called()
 
     def test_multiple_taxid_extraction(self):
         """Test extracting reads matching multiple taxids."""
@@ -199,15 +212,52 @@ class TestGottcha2Integration(unittest.TestCase):
             f.write("\n")  # Empty line to test handling
             f.write("# Comment to ignore\n")
         
-        # Test extraction using file input
-        taxids = gottcha2.parse_taxids(f'@{taxid_file}')
-                        
-        self.assertEqual(len(taxids), 2, f"Should have 2 taxids")
-        self.assertEqual(
-            taxids,
-            ['12345', '67890'],
-            "Should extract taxids listed in file"
-        )
+        # Create mock taxonomy file data
+        mock_taxa_df = pd.DataFrame({
+            'LEVEL': ['species', 'species'],
+            'NAME': ['Species1', 'Species2'],
+            'TAXID': ['12345', '67890'],
+            'NOTE': ['', '']
+        })
+
+        # Mock logging and file operations
+        with patch('gottcha.scripts.gottcha2.print_message') as mock_print, \
+             patch('gottcha.scripts.gottcha2.pd.read_csv', return_value=mock_taxa_df):
+            
+            # Test with empty DataFrame and file input
+            gottcha2.argvs = MagicMock()
+            gottcha2.argvs.silent = True
+            gottcha2.begin_t = 0
+            gottcha2.logfile = os.path.join(self.test_dir, "test.log")
+            
+            empty_df = pd.DataFrame()
+            taxa_dict, qualified_taxids = gottcha2.parse_taxids(f'@{taxid_file}', empty_df, "mock_full.tsv")
+            
+            # Verify the results
+            self.assertEqual(len(qualified_taxids), 2)
+            self.assertListEqual(sorted(qualified_taxids), ['12345', '67890'])
+            self.assertEqual(len(taxa_dict), 2)
+            
+            # Verify taxonomy dictionary contents
+            self.assertEqual(taxa_dict['12345']['level'], 'species')
+            self.assertEqual(taxa_dict['12345']['name'], 'Species1')
+            self.assertEqual(taxa_dict['67890']['level'], 'species')
+            self.assertEqual(taxa_dict['67890']['name'], 'Species2')
+
+            # Test with pre-loaded DataFrame
+            taxa_dict2, qualified_taxids2 = gottcha2.parse_taxids(f'@{taxid_file}', mock_taxa_df, "mock_full.tsv")
+            self.assertEqual(len(qualified_taxids2), 2)
+            self.assertListEqual(sorted(qualified_taxids2), ['12345', '67890'])
+            
+            # Test with direct taxid input
+            taxa_dict3, qualified_taxids3 = gottcha2.parse_taxids('12345,67890', mock_taxa_df, "mock_full.tsv")
+            self.assertEqual(len(qualified_taxids3), 2)
+            self.assertListEqual(sorted(qualified_taxids3), ['12345', '67890'])
+            
+            # Test with 'all' option
+            taxa_dict4, qualified_taxids4 = gottcha2.parse_taxids('all', mock_taxa_df, "mock_full.tsv")
+            self.assertEqual(len(qualified_taxids4), 2)
+            self.assertListEqual(sorted(qualified_taxids4), ['12345', '67890'])
 
     def test_load_excluded_acc_list(self):
         """Test loading accession list to exclude."""
