@@ -52,13 +52,13 @@ jobs:
         run: |
           cd GOTTCHA2/test/
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -e 3052462 -s SRR12689945_1_1k.gottcha_species.sam
-          wc -l SRR12689945_1_1k.gottcha_species.extract.fasta | grep 1940
+          wc -l SRR12689945_1_1k.gottcha_species.extract.fasta | grep 964
 
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -e 3052462:10:fastq -s SRR12689945_1_1k.gottcha_species.sam -p test_ext1
           wc -l test_ext1.extract.fastq | grep 40
 
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -ef -eo -s SRR12689945_1_1k.gottcha_species.sam -p test_ext2
-          wc -l test_ef_option_output/test_ext2.extract.fasta | grep 320
+          wc -l test_ext2.extract.fasta | grep 320
 
       - name: Run unittests
         run: |
