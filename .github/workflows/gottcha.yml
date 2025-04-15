@@ -37,7 +37,7 @@ jobs:
           python setup.py install
           gottcha2 profile --help
 
-      - name: Run test dataset
+      - name: Run testing dataset
         run: |
           cd GOTTCHA2/test/
           tar -xzf gottcha2_database_Ebola_test.tar.gz
@@ -46,11 +46,21 @@ jobs:
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz -nc
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i gottcha2_database_test/gottcha_db.species.fna.gz -np
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -s SRR12689945_1_1k.gottcha_species.sam
-          gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -e 3052462 -s SRR12689945_1_1k.gottcha_species.sam
           grep 'Orthoebolavirus zairense' SRR12689945_1_1k.tsv
 
-      - name: Run unit tests
+      - name: Test extractions
+        run: |
+          cd GOTTCHA2/test/
+          gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -e 3052462 -s SRR12689945_1_1k.gottcha_species.sam
+          wc -l SRR12689945_1_1k.gottcha_species.extract.fasta | grep 1940
+
+          gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -e 3052462:10:fastq -s SRR12689945_1_1k.gottcha_species.sam -p test_ext1
+          wc -l test_ext1.extract.fastq | grep 40
+
+          gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -ef -eo -s SRR12689945_1_1k.gottcha_species.sam -p test_ext2
+          wc -l test_ef_option_output/test_ext2.extract.fasta | grep 320
+
+      - name: Run unittests
         run: |
           cd GOTTCHA2
-          ls -la test/
           python -m unittest discover -v -s test
