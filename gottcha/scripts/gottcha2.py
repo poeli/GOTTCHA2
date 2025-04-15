@@ -573,24 +573,6 @@ def process_sam_file(sam_fn, numthreads, matchFactor, excluded_acc_list=None):
 
     return result, mapped_reads, tol_alignment_count, tol_invalid_match_count, tol_exclude_acc_count
 
-def isin_target_taxa(taxid, taxa_list):
-    """
-    Check if one taxid is a descendant of another in the taxonomy tree.
-    
-    Parameters:
-        taxid (str): The taxid to check
-        target_taxa (list): The list of target taxa to check
-        
-    Returns:
-        bool: True if taxid is in target taxa, False otherwise
-    """
-    fullLineage = gt.taxid2fullLineage(taxid, space2underscore=False)
-    for target in taxa_list:
-        if f"|{target}|" in fullLineage:
-            return True
-        
-    return False
-
 def extract_read_from_sam(sam_fn, o, taxa_list, numthreads, matchFactor, excluded_acc_list):
     """
     Extract reads from a SAM file that map to a specific taxid or its descendants.
@@ -626,49 +608,6 @@ def extract_read_from_sam(sam_fn, o, taxa_list, numthreads, matchFactor, exclude
     pool.close()
 
     return total_read_count
-
-def ReadExtractWorker(filename, chunkStart, chunkSize, taxa_list, matchFactor, excluded_acc_list):
-    """
-    Worker function to extract reads from a chunk of SAM file.
-    
-    Processes a chunk of SAM file and extracts reads that map to a specific taxid
-    or its descendants, formatting them as FASTQ entries.
-    
-    Parameters:
-        filename (str): Path to the SAM file
-        chunkStart (int): Byte position to start reading
-        chunkSize (int): Number of bytes to read
-        taxa_str (str): Taxid to filter reads for
-        matchFactor (float): Minimum fraction required for a valid match
-        
-    Returns:
-        str: FASTQ-formatted string containing all matching reads
-    """
-    read_count = 0
-    # output
-    readstr=""
-    # processing alignments in SAM format
-    f = open( filename )
-    f.seek(chunkStart)
-    lines = f.read(chunkSize).splitlines()
-    for line in lines:
-        ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
-
-        if not (pri_aln_flag and valid_match_flag and valid_acc_flag): continue
-
-        acc, start, stop, t = ref.split('|')
-
-        if int(flag) & 16:
-            g = findall(r'\d+\w', cigr)
-            cigr = "".join(list(reversed(g)))
-            rseq = seqReverseComplement(rseq)
-            rq = rq[::-1]
-
-        if isin_target_taxa(t, taxa_list):
-            readstr += f"@{rname} {ref}:{region[0]}..{region[1]} {cigr} NM:i:{nm}\n{rseq}\n+\n{rq}\n"
-            read_count += 1
-    
-    return readstr, read_count
 
 def extract_sequences_by_taxonomy(sam_fn, 
                                   taxa_dict, 
