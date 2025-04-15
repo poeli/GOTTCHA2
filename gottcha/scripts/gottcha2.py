@@ -20,8 +20,7 @@ it under the terms of the GNU General Public License as published by the Free
 Software Foundation; either version 3 of the License, or (at your option) any
 later version. Accordingly, this program is distributed in the hope that it will
 be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public
-License for more details.
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 """
 
 import argparse as ap, textwrap as tw
@@ -116,6 +115,10 @@ def parse_params(ver, args):
         help='While --extract is specified, this option will only extract the reads and not perform any further processing of the SAM file.'
     )
 
+    p.add_argument('-ef', '--extractFasta', metavar='<INT>', type=int, nargs='?', const=20, default=None,
+                    help="""Extract up to N sequences (default: 20) per reference in the SAM file to a FASTA file.
+                    Use without a number to extract 20 sequences per reference.""")
+
     p.add_argument( '-fm','--format', metavar='[STR]', type=str, default='tsv',
                     choices=['tsv','csv','biom'],
                     help='Format of the results; available options include tsv, csv or biom. [default: tsv]')
@@ -184,6 +187,9 @@ def parse_params(ver, args):
     if args_parsed.version:
         print( ver )
         sys.exit(0)
+
+    if args_parsed.extract and args_parsed.extractFasta:
+        p.error( '--extract and --extractFasta are incompatible options.' )
 
     if not args_parsed.database:
         p.error( '--database option is missing.' )
@@ -1137,6 +1143,7 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
             'MAPPED_SIG_LENGTH', 'TOL_SIG_LENGTH', 'ABUNDANCE', 'ZSCORE', 'SIG_LEVEL',
             'GENOME_COUNT', 'GENOME_SIZE', 'NOTE']
 
+
     # replace SIG_LEVEL back to their original ranks
     major_ranks = {"superkingdom":1,"phylum":2,"class":3,"order":4,"family":5,"genus":6,"species":7, "strain":8}
     major_ranks = {v:k for k,v in major_ranks.items()}
@@ -1147,10 +1154,12 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     qualified_df = rep_df.loc[qualified_idx, cols[:10]]
 
     sep = ',' if fmt=='csv' else '\t'
+    
     # save full report
-    rep_df[cols].to_csv(fullreport_o, index=False, sep=sep, float_format='%.6f')
+    rep_df[cols].to_csv(fullreport_o, index=False, sep=sep, float_format='%.6f', quoting=2 if fmt=='csv' else 0)
+    
     # save summary
-    qualified_df.to_csv(o, index=False, sep=sep, float_format='%.6f')
+    qualified_df.to_csv(o, index=False, sep=sep, float_format='%.6f', quoting=2 if fmt=='csv' else 0)
 
     return True
 
@@ -1584,6 +1593,7 @@ def main(args):
 
         outfile = "%s/%s.tsv" % (argvs.outdir, argvs.prefix)            
         if argvs.format == "csv":
+
             outfile = "%s/%s.csv" % (argvs.outdir, argvs.prefix)
         elif argvs.format == "biom":
             outfile = "%s/%s.biom" % (argvs.outdir, argvs.prefix)
@@ -1610,6 +1620,7 @@ def main(args):
     print_message( f"    Minimal reads    : {argvs.minReads}",    argvs.silent, begin_t, logfile )
     print_message( f"    Minimal mFactor  : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
     print_message( f"    Maximal zScore   : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
+    print_message( f"    Extract FASTA    : {argvs.extractFasta}", argvs.silent, begin_t, logfile )
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
