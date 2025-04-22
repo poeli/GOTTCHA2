@@ -2,8 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.9.0"
-__date__      = "2018/10/07"
+__version__   = "2.1.9.1"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
 under U.S. Government contract DE-AC52-06NA25396 for Los Alamos National Laboratory
@@ -116,9 +115,9 @@ def parse_params(ver, args):
                     choices=['tsv','csv','biom'],
                     help='Format of the results; available options include tsv, csv or biom. [default: tsv]')
 
-    p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='ROLLUP_DOC',
-                    choices=['ROLLUP_DOC','READ_COUNT','TOTAL_BP_MAPPED'],
-                    help='The field will be used to calculate relative abundance. You can specify one of the following fields: "LINEAR_LENGTH", "TOTAL_BP_MAPPED", "READ_COUNT" and "LINEAR_DOC". [default: ROLLUP_DOC]')
+    p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='DEPTH',
+                    choices=['DEPTH','READ_COUNT','GENOMIC_CONTENT_ADJ'],
+                    help='The field will be used to calculate relative abundance. You can specify one of the following fields: "DEPTH", "READ_COUNT", "GENOMIC_CONTENT_ADJ". [default: DEPTH]')
 
     p.add_argument( '-t','--threads', metavar='<INT>', type=int, default=1,
                     help="Number of threads [default: 1]")
@@ -134,13 +133,13 @@ def parse_params(ver, args):
                     help="The preset option (-x) for minimap2. Default value 'sr' for short reads. [default: sr]")
 
     p.add_argument( '-mc','--minCov', metavar='<FLOAT>', type=float, default=0.005,
-                    help="Minimum linear coverage to be considered valid in abundance calculation. [default: 0.005]")
+                    help="Minimum signature coverage to be considered valid in abundance calculation. [default: 0.005]")
 
     p.add_argument( '-mr','--minReads', metavar='<INT>', type=int, default=3,
                     help="Minimum number of reads to be considered valid in abundance calculation. [default: 3]")
 
     p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
-                    help="Minimum unique length to be considered valid in abundance calculation. [default: 60]")
+                    help="Minimum signature length to be considered valid in abundance calculation. [default: 60]")
 
     p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=30,
                     help="Maximum estimated z-score for the depths of the mapped region. Set to 0 to disable. [default: 30]")
@@ -521,7 +520,7 @@ def process_sam_file(sam_fn, numthreads, matchFactor, excluded_acc_list=None):
     result = gt._autoVivification()
     mapped_reads = 0
 
-    print_message( f"Parsing SAM files with {numthreads} subprocesses...", argvs.silent, begin_t, logfile )
+    print_message( f" - Processing with {numthreads} cpus...", argvs.silent, begin_t, logfile )
     pool = Pool(processes=numthreads)
     jobs = []
     results = []
@@ -538,12 +537,13 @@ def process_sam_file(sam_fn, numthreads, matchFactor, excluded_acc_list=None):
     for job in jobs:
         results.append( job.get() )
         cnt+=1
-        if argvs.debug: print_message( f"[DEBUG] Progress: {cnt}/{tol_jobs} ({cnt/tol_jobs*100:.1f}) chunks done.", argvs.silent, begin_t, logfile )
+        if argvs.debug:
+            logging.debug( f"[DEBUG] Progress: {cnt}/{tol_jobs} ({cnt/tol_jobs*100:.1f}) chunks done.")
 
     #clean up
     pool.close()
 
-    print_message( "Merging results...", argvs.silent, begin_t, logfile )
+    print_message( f" - Merging {tol_jobs} jobs...", argvs.silent, begin_t, logfile )
     for res_tuples in results:
         (res, alignment_count, invalid_match_count, exclude_acc_count) = res_tuples
         tol_alignment_count += alignment_count
@@ -560,13 +560,13 @@ def process_sam_file(sam_fn, numthreads, matchFactor, excluded_acc_list=None):
                 result[k]={}
                 result[k].update(res[k])
 
-    # convert mapped regions to linear length
+    # convert mapped regions to covered signature length
     refs = result.keys()
     for k in list(refs):
         if not result[k]["MR"]:
             del result[k]
         else:
-            result[k]["LL"] = sum(end - start + 1 for start, end in result[k]['REGIONS'])
+            result[k]["SL"] = sum(end - start + 1 for start, end in result[k]['REGIONS'])
             del result[k]['REGIONS']
             mapped_reads += result[k]["MR"]
 
@@ -817,13 +817,12 @@ def group_refs_to_strains(r):
         'MB':'sum', # of mapped bases
         'MR':'sum', # of mapped reads
         'NM':'sum', # of mismatches
-        'LL':'sum', # linear length
+        'SL':'sum', # covered signature length
         'RLEN':'sum' # length of this signature fragments (mapped)
     }).reset_index()
     # total length of signatures
     str_df['TS'] = str_df['TAXID'].map(df_stats['TotalLength'])
-    str_df['bDOC'] = str_df['MB']/str_df['TS'] # bDOC: best Depth of Coverage of a strain
-    str_df['bLC'] = str_df['LL']/str_df['TS'] # bLC:  best linear coverage of a strain
+    str_df['bLC'] = str_df['SL']/str_df['TS'] # bLC:  best linear coverage of a strain
     str_df['RD'] = str_df['MB']/str_df['TS'] # roll-up DoC
 
     # rename columns
@@ -831,17 +830,16 @@ def group_refs_to_strains(r):
         "MB":   "TOTAL_BP_MAPPED",
         "MR":   "READ_COUNT",
         "NM":   "TOTAL_BP_MISMATCH",
-        "LL":   "LINEAR_LEN",
-        "RLEN": "MAPPED_SIG_LENGTH",
-        "TS":   "TOL_SIG_LENGTH",
-        "RD":   "ROLLUP_DOC",
-        "bDOC": "BEST_DOC",
-        "bLC":  "BEST_LINEAR_COV"
+        "SL":   "COVERED_SIG_LEN",
+        "RLEN": "MAPPED_SIG_LEN", # length of the mapped signature fragments (entire fragment)
+        "TS":   "TOTAL_SIG_LEN",
+        "RD":   "DEPTH",
+        "bLC":  "BEST_SIG_COV"
     }, inplace=True)
 
-    # check if TOL_SIG_LENGTH is 0, report the TAXID and exit
+    # check if TOTAL_SIG_LEN is 0, report the TAXID and exit
     # this should not happen if the database and corresponding stats file are correct
-    if str_df['TOL_SIG_LENGTH'].eq(0).any():
+    if str_df['TOTAL_SIG_LEN'].eq(0).any():
         logging.fatal(f"Error: total signature length is ZERO for some mapped strains. Please check your database.")
         sys.exit(1)
 
@@ -850,8 +848,11 @@ def group_refs_to_strains(r):
     str_df['GENOME_SIZE'] = str_df['TAXID'].map(df_stats['GenomeSize'])
     str_df['GENOME_COUNT'] = 1
 
+    # infer total genome contents
+    str_df['GENOMIC_CONTENT_ADJ'] = str_df['TOTAL_BP_MAPPED']/str_df['TOTAL_SIG_LEN']*str_df['GENOME_SIZE']
+
     # estimate z-score
-    str_df['ZSCORE'] = str_df.apply(lambda x: pile_lvl_zscore(x.TOTAL_BP_MAPPED, x.TOL_SIG_LENGTH, x.LINEAR_LEN), axis=1)
+    str_df['ZSCORE'] = str_df.apply(lambda x: pile_lvl_zscore(x.TOTAL_BP_MAPPED, x.TOTAL_SIG_LEN, x.COVERED_SIG_LEN), axis=1)
 
     return str_df
 
@@ -876,7 +877,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
         tg_rank (str): Target taxonomic rank
         mc (float): Minimum linear coverage threshold
         mr (int): Minimum read count threshold
-        ml (int): Minimum linear length threshold
+        ml (int): Minimum covered signature length threshold
         mz (float): Maximum Z-score threshold (0 to disable)
         
     Returns:
@@ -909,9 +910,9 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
     str_df['SIG_LEVEL'] = str_df['SIG_LEVEL'].map(major_ranks)
 
     # get qualified strain
-    qualified_idx = (str_df['LINEAR_LEN']/str_df['TOL_SIG_LENGTH'] >= mc) & \
+    qualified_idx = (str_df['COVERED_SIG_LEN']/str_df['TOTAL_SIG_LEN'] >= mc) & \
                     (str_df['READ_COUNT'] >= mr) & \
-                    (str_df['LINEAR_LEN'] >= ml) & \
+                    (str_df['COVERED_SIG_LEN'] >= ml) & \
                     ((str_df['ZSCORE'] <= mz) if mz > 0 else True)
 
     # iterate through ranks to get index and value
@@ -937,20 +938,31 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
                 'TOTAL_BP_MAPPED': 'sum', 
                 'READ_COUNT': 'sum', 
                 'TOTAL_BP_MISMATCH': 'sum',
-                'LINEAR_LEN': 'sum', 
-                'MAPPED_SIG_LENGTH': 'sum', 
-                'TOL_SIG_LENGTH': 'sum',
-                'ROLLUP_DOC': 'sum', 
-                'BEST_DOC': 'max', 
-                'BEST_LINEAR_COV': 'max', 
+                'COVERED_SIG_LEN': 'sum', 
+                'MAPPED_SIG_LEN': 'sum', 
+                'TOTAL_SIG_LEN': 'sum',
+                'DEPTH': 'sum', 
+                'BEST_SIG_COV': 'max', 
                 'ZSCORE': 'min',
+                'GENOMIC_CONTENT_ADJ': 'sum',
                 'SIG_LEVEL': 'max',
                 'GENOME_COUNT': 'count', 
                 'GENOME_SIZE': 'sum'
             }).reset_index().copy()
 
+        # calculate the relative abundance of each taxon
+        # the abundance and the relative abundance is calculated based on the specified column (abu_col)
+        # Other depth-based and adjusted-genomic-content-based abundance values are also included
         lvl_df['ABUNDANCE'] = lvl_df[abu_col]
         lvl_df['REL_ABUNDANCE'] = lvl_df[abu_col]/lvl_df[abu_col].sum()
+
+        lvl_df['ABUNDANCE_DEPTH'] = lvl_df['DEPTH']
+        if lvl_df['DEPTH'].sum() > 0:
+            lvl_df['REL_ABUNDANCE_DEPTH'] = lvl_df['ABUNDANCE_DEPTH']/lvl_df['ABUNDANCE_DEPTH'].sum()
+        else:
+            lvl_df['REL_ABUNDANCE_DEPTH'] = 0
+        lvl_df['ABUNDANCE_GC'] = lvl_df['GENOMIC_CONTENT_ADJ']
+        lvl_df['REL_ABUNDANCE_GC'] = lvl_df['GENOMIC_CONTENT_ADJ']/lvl_df['GENOMIC_CONTENT_ADJ'].sum()
 
         # Add the "NOTE" column.  The default value is empty, signifying that there's no known reason why this strain is not displayed.
         # A note is added if a taxa has a rank with higher resolution than the target rank (signature-level), suggesting potential bias.
@@ -965,18 +977,18 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
         # concart ranks-dataframe to the report-dataframe
         rep_df = pd.concat([lvl_df.sort_values('ABUNDANCE', ascending=False), rep_df], ignore_index=True)
 
-    rep_df["LINEAR_COV"] = rep_df["LINEAR_LEN"]/rep_df["TOL_SIG_LENGTH"]
-    rep_df["LINEAR_COV_MAPPED_SIG"] = rep_df["LINEAR_LEN"]/rep_df["MAPPED_SIG_LENGTH"]
-    rep_df["DOC"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["TOL_SIG_LENGTH"]
-    rep_df["LINEAR_DOC"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["LINEAR_LEN"]
+    rep_df["SIG_COV"] = rep_df["COVERED_SIG_LEN"]/rep_df["TOTAL_SIG_LEN"]
+    rep_df["COVERED_MAPPED_SIG_COV"] = rep_df["COVERED_SIG_LEN"]/rep_df["MAPPED_SIG_LEN"]
+    rep_df["DOC"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["TOTAL_SIG_LEN"]
+    rep_df["COVERED_SIG_DEPTH"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["COVERED_SIG_LEN"]
 
     # add filtered reason to NOTE column
-    filtered = (rep_df['LINEAR_COV'] < mc)
-    rep_df.loc[filtered, 'NOTE'] += "Filtered out (minCov > " + rep_df.loc[filtered, 'LINEAR_COV'].astype(str) + "); "
+    filtered = (rep_df['BEST_SIG_COV'] < mc)
+    rep_df.loc[filtered, 'NOTE'] += "Filtered out (minCov > " + rep_df.loc[filtered, 'SIG_COV'].astype(str) + "); "
     filtered = (rep_df['READ_COUNT'] < mr)
     rep_df.loc[filtered, 'NOTE'] += "Filtered out (minReads > " + rep_df.loc[filtered, 'READ_COUNT'].astype(str) + "); "
-    filtered = (rep_df['LINEAR_LEN'] < ml)
-    rep_df.loc[filtered, 'NOTE'] += "Filtered out (minLen > " + rep_df.loc[filtered, 'LINEAR_LEN'].astype(str) + "); "
+    filtered = (rep_df['COVERED_SIG_LEN'] < ml)
+    rep_df.loc[filtered, 'NOTE'] += "Filtered out (minLen > " + rep_df.loc[filtered, 'COVERED_SIG_LEN'].astype(str) + "); "
 
     if mz > 0:
         filtered = (rep_df['ZSCORE'] > mz)
@@ -1034,10 +1046,11 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     """
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
-            'TOTAL_BP_MISMATCH', 'LINEAR_LEN', 'LINEAR_DOC', 'ROLLUP_DOC', 'REL_ABUNDANCE',
-            'PARENT_NAME', 'PARENT_TAXID', 'LINEAR_COV', 'LINEAR_COV_MAPPED_SIG', 'BEST_LINEAR_COV', 
-            'MAPPED_SIG_LENGTH', 'TOL_SIG_LENGTH', 'ABUNDANCE', 'ZSCORE', 'SIG_LEVEL',
-            'GENOME_COUNT', 'GENOME_SIZE', 'NOTE']
+            'TOTAL_BP_MISMATCH', 'COVERED_SIG_LEN', 'BEST_SIG_COV', 'DEPTH', 'REL_ABUNDANCE',
+            'PARENT_NAME', 'PARENT_TAXID', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 'SIG_COV', 
+            'MAPPED_SIG_LEN', 'TOTAL_SIG_LEN', 'ZSCORE', 'GENOMIC_CONTENT_ADJ', 'ABUNDANCE', 
+            'REL_ABUNDANCE_DEPTH', 'REL_ABUNDANCE_GC', 'SIG_LEVEL', 'GENOME_COUNT', 'GENOME_SIZE', 
+            'NOTE']
 
 
     # replace SIG_LEVEL back to their original ranks
@@ -1288,9 +1301,20 @@ def loadDatabaseStats(db_stats_file):
                             dtype={'DB_level': str, 'Taxid': str},
                             index_col='Taxid')
 
-    df_stats['TotalLength'] = pd.to_numeric(df_stats['TotalLength'], errors='coerce')
-    df_stats['TotalLength'] = df_stats['TotalLength'].fillna(0).astype(int)
+    # Remove the row with index 'Taxid' if it exists
+    # This is to handle the case when the stats file having the header
+    if 'Taxid' in df_stats.index:
+        df_stats = df_stats.drop('Taxid')
 
+    # Make sure the format is consistent
+    try:
+        df_stats['TotalLength'] = pd.to_numeric(df_stats['TotalLength'], errors='raise')
+    except ValueError:
+        logging.error(f"Error processing stats file. Please check the format of the file.")
+        sys.exit(1)
+
+    # This is to handle the case when the stats file does not have GenomeSize column
+    # In that case, the 'Note' column will be loaded as 'GenomeSize' and filled with 0
     df_stats['GenomeSize'] = pd.to_numeric(df_stats['GenomeSize'], errors='coerce')
     df_stats['GenomeSize'] = df_stats['GenomeSize'].fillna(0).astype(int)
 
@@ -1469,7 +1493,7 @@ def main(args):
     out_fp = sys.stdout
     outfile = "STDOUT"
 
-    if not argvs.stdout:
+    if not argvs.stdout and not argvs.extractOnly:
         #create output directory if not exists
         if not os.path.exists(argvs.outdir):
             os.makedirs(argvs.outdir)
@@ -1498,8 +1522,8 @@ def main(args):
     print_message( f"    Prefix           : {argvs.prefix}",      argvs.silent, begin_t, logfile )
     print_message( f"    Extract seqs     : {argvs.extract}",     argvs.silent, begin_t, logfile )
     print_message( f"    Threads          : {argvs.threads}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal L_DOC    : {argvs.minCov}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal L_LEN    : {argvs.minLen}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal SIG cov  : {argvs.minCov}",      argvs.silent, begin_t, logfile ) #SIG_COV
+    print_message( f"    Minimal SIG len  : {argvs.minLen}",      argvs.silent, begin_t, logfile ) #COVERED_SIG_LEN
     print_message( f"    Minimal reads    : {argvs.minReads}",    argvs.silent, begin_t, logfile )
     print_message( f"    Minimal mFactor  : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
     print_message( f"    Maximal zScore   : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
@@ -1527,8 +1551,10 @@ def main(args):
     if os.path.isfile( argvs.database + ".stats" ):
         df_stats = loadDatabaseStats(argvs.database+".stats")
     else:
-        sys.exit( "[%s] ERROR: %s not found.\n" % (time_spend(begin_t), argvs.database+".stats") )
+        print_message( f"ERROR: {argvs.database+".stats"} not found.", argvs.silent, begin_t, logfile, errorout=1)
+
     print_message( f" - {df_stats.shape[0]} entries loaded.", argvs.silent, begin_t, logfile )
+    print_message( f" - signatures at {df_stats['DB_level'].unique()} levels loaded.", argvs.silent, begin_t, logfile )
     
     if argvs.accExclusionList:
         print_message( "Loading excluded accession list...", argvs.silent, begin_t, logfile )
