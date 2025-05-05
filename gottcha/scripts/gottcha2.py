@@ -26,7 +26,7 @@ import argparse as ap, textwrap as tw
 import sys, os, time, subprocess
 import pandas as pd
 import gc
-from re import search,findall
+from re import search, findall
 from multiprocessing import Pool, set_start_method
 from itertools import chain
 import math
@@ -340,12 +340,13 @@ def worker(filename, chunkStart, chunkSize, matchFactor, excluded_acc_list=None)
     exclude_acc_count=0
 
     for line in lines:
-        k, r, n, rd, rs, rq, flag, cigr, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
+        k, r, n, rd, rs, rq, flag, cigr, read_len, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
         # parsed values from SAM line
         # only k, r, n, pri_aln_flag, valid_flag are used
         # k: reference name
         # r: (start, end) of mapped region
         # n: number of mismatches
+        # read_len: read length
         # pri_aln_flag: whether this is a primary alignment
         # valid_match_flag: whether this alignment meets match criteria
         # valid_acc_flag: whether this alignment maps to a valid accession
@@ -362,12 +363,14 @@ def worker(filename, chunkStart, chunkSize, matchFactor, excluded_acc_list=None)
                 res[k]["MB"] += r[1] - r[0] + 1
                 res[k]["MR"] += 1
                 res[k]["NM"] += n
+                res[k]["RL"] += read_len
             else:
                 res[k]={}
                 res[k]["REGIONS"] = [r]
                 res[k]["MB"] = r[1] - r[0] + 1
                 res[k]["MR"] = 1
                 res[k]["NM"] = n
+                res[k]["RL"] = read_len
     
     return (res, len(lines), invalid_match_count, exclude_acc_count)
 
@@ -406,12 +409,14 @@ def parse(line, matchFactor, excluded_acc_list=None):
     """
     temp = line.split('\t')
     name = temp[0]
-    match_len = search(r'(\d+)M', temp[5])
-    match_len = int(match_len.group(1)) if match_len else 0
+
+    # parse the CIGAR string for match length, search all r'(\d+)M' and sum all matches
+    mapped_len = sum(int(num) for num in findall(r'(\d+)M', temp[5]))
+
     mismatch_len = search(r'NM:i:(\d+)', line)
     mismatch_len = int(mismatch_len.group(1)) if mismatch_len else 0
     start = int(temp[3])
-    end   = start + match_len - 1
+    end   = start + mapped_len - 1
     read_len = len(temp[9])
 
     ref = temp[2].rstrip('|')
@@ -427,8 +432,8 @@ def parse(line, matchFactor, excluded_acc_list=None):
     valid_match_flag = True
     valid_acc_flag = True
 
-    # match identity = max (int(match_len.group(1)/rlen,  int(match_len.group(1)/len(temp[9] )
-    match_idt = max(match_len/rlen, match_len/read_len)
+    # get the max matching identity
+    match_idt = max(mapped_len/rlen, mapped_len/read_len)
 
     if matchFactor > 0:
         if match_idt >= matchFactor:
@@ -439,7 +444,7 @@ def parse(line, matchFactor, excluded_acc_list=None):
     if excluded_acc_list:
         valid_acc_flag = False if acc in excluded_acc_list else True
 
-    return ref, (start, end), mismatch_len, name, temp[9], temp[10], temp[1], temp[5], primary_alignment_flag, valid_match_flag, valid_acc_flag
+    return ref, (start, end), mismatch_len, name, temp[9], temp[10], temp[1], temp[5], read_len, primary_alignment_flag, valid_match_flag, valid_acc_flag
 
 def time_spend(start):
     """
@@ -556,6 +561,7 @@ def process_sam_file(sam_fn, numthreads, matchFactor, excluded_acc_list=None):
                 result[k]["MB"] += res[k]["MB"]
                 result[k]["MR"] += res[k]["MR"]
                 result[k]["NM"] += res[k]["NM"]
+                result[k]["RL"] += res[k]["RL"]
             else:
                 result[k]={}
                 result[k].update(res[k])
@@ -566,7 +572,7 @@ def process_sam_file(sam_fn, numthreads, matchFactor, excluded_acc_list=None):
         if not result[k]["MR"]:
             del result[k]
         else:
-            result[k]["SL"] = sum(end - start + 1 for start, end in result[k]['REGIONS'])
+            result[k]["SC"] = sum(end - start + 1 for start, end in result[k]['REGIONS'])
             del result[k]['REGIONS']
             mapped_reads += result[k]["MR"]
 
@@ -705,7 +711,7 @@ def OptimizedFastaWorker(filename, chunkStart, chunkSize, taxa_dict, qualified_t
         processed_lines += 1
         
         try:
-            ref, region, nm, rname, rseq, rq, flag, cigr, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
+            ref, region, nm, rname, rseq, rq, flag, cigr, read_len, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
             
             if not (pri_aln_flag and valid_match_flag and valid_acc_flag):
                 continue
@@ -758,10 +764,19 @@ def OptimizedFastaWorker(filename, chunkStart, chunkSize, taxa_dict, qualified_t
                     # Create FASTA entry with taxonomy information
                     level = taxa_dict[taxid]['level']
                     name = taxa_dict[taxid]['name']
+
+                    # determine if the read is the first or second mate
+                    mate = ''
+                    if (int(flag) & 64) | (int(flag) & 128):
+                        if int(flag) & 64:
+                            mate = '.1'
+                        elif int(flag) & 128:
+                            mate = '.2'
+
                     if format == 'fasta':
-                        fasta_entry = f">{rname}|{ref}:{region[0]}..{region[1]} LEVEL={level} NAME={name} TAXID={taxid}\n{seq_to_use}\n"
+                        fasta_entry = f">{rname}{mate}|{ref}:{region[0]}..{region[1]} LEVEL={level} NAME={name} TAXID={taxid}\n{seq_to_use}\n"
                     else:
-                        fasta_entry = f"@{rname}|{ref}:{region[0]}..{region[1]} LEVEL={level} NAME={name} TAXID={taxid}\n{seq_to_use}\n+\n{rq}\n"
+                        fasta_entry = f"@{rname}{mate}|{ref}:{region[0]}..{region[1]} LEVEL={level} NAME={name} TAXID={taxid}\n{seq_to_use}\n+\n{rq}\n"
                     taxon_seqs[taxid].append(fasta_entry)
         except Exception as e:
             # Skip problematic lines
@@ -810,19 +825,20 @@ def group_refs_to_strains(r):
     r_df[['ACC','RSTART','REND','TAXID']] = r_df['RNAME'].str.split('|', expand=True)
     r_df['RSTART'] = r_df['RSTART'].astype(int)
     r_df['REND'] = r_df['REND'].astype(int)
-    r_df['RLEN'] = r_df['REND']-r_df['RSTART']+1
+    r_df['SLEN'] = r_df['REND']-r_df['RSTART']+1 # length of the signature fragment
 
     # group by strain
     str_df = r_df.groupby(['TAXID']).agg({
         'MB':'sum', # of mapped bases
         'MR':'sum', # of mapped reads
         'NM':'sum', # of mismatches
-        'SL':'sum', # covered signature length
-        'RLEN':'sum' # length of this signature fragments (mapped)
+        'SC':'sum', # covered signature length
+        'SLEN':'sum', # length of this signature fragments (mapped)
+        'RL':'sum' # length of the reads
     }).reset_index()
     # total length of signatures
     str_df['TS'] = str_df['TAXID'].map(df_stats['TotalLength'])
-    str_df['bLC'] = str_df['SL']/str_df['TS'] # bLC:  best linear coverage of a strain
+    str_df['bLC'] = str_df['SC']/str_df['TS'] # bLC:  best linear coverage of a strain
     str_df['RD'] = str_df['MB']/str_df['TS'] # roll-up DoC
 
     # rename columns
@@ -830,8 +846,9 @@ def group_refs_to_strains(r):
         "MB":   "TOTAL_BP_MAPPED",
         "MR":   "READ_COUNT",
         "NM":   "TOTAL_BP_MISMATCH",
-        "SL":   "COVERED_SIG_LEN",
-        "RLEN": "MAPPED_SIG_LEN", # length of the mapped signature fragments (entire fragment)
+        "RL":   "TOTAL_READ_LEN",
+        "SC":   "COVERED_SIG_LEN",
+        "SLEN": "MAPPED_SIG_LEN", # length of the mapped signature fragments (entire fragment)
         "TS":   "TOTAL_SIG_LEN",
         "RD":   "DEPTH",
         "bLC":  "BEST_SIG_COV"
@@ -906,14 +923,16 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
         logging.error(f"Error processing rank {ranks}: {e}. Please verify that your taxonomy file matches the expected database.")
         sys.exit(1)
 
-    # decide top signature level
+    # decide top signature level, convert the rank to the corresponding number
     str_df['SIG_LEVEL'] = str_df['SIG_LEVEL'].map(major_ranks)
 
-    # get qualified strain
-    qualified_idx = (str_df['COVERED_SIG_LEN']/str_df['TOTAL_SIG_LEN'] >= mc) & \
-                    (str_df['READ_COUNT'] >= mr) & \
-                    (str_df['COVERED_SIG_LEN'] >= ml) & \
-                    ((str_df['ZSCORE'] <= mz) if mz > 0 else True)
+    total_abundance = str_df[abu_col].sum()
+
+    # # get qualified strain
+    # qualified_idx = (str_df['COVERED_SIG_LEN']/str_df['TOTAL_SIG_LEN'] >= mc) & \
+    #                 (str_df['READ_COUNT'] >= mr) & \
+    #                 (str_df['COVERED_SIG_LEN'] >= ml) & \
+    #                 ((str_df['ZSCORE'] <= mz) if mz > 0 else True)
 
     # iterate through ranks to get index and value
     for idx, rank in enumerate(ranks):
@@ -930,7 +949,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
         if rank == 'strain':
             lvl_df = str_df
         else:
-            lvl_df = str_df[qualified_idx].groupby('LVL_NAME').agg({
+            lvl_df = str_df.groupby('LVL_NAME').agg({
                 'LEVEL':'first',
                 'LVL_TAXID':'first',
                 'PARENT_NAME':'first',
@@ -938,6 +957,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
                 'TOTAL_BP_MAPPED': 'sum', 
                 'READ_COUNT': 'sum', 
                 'TOTAL_BP_MISMATCH': 'sum',
+                'TOTAL_READ_LEN': 'sum',
                 'COVERED_SIG_LEN': 'sum', 
                 'MAPPED_SIG_LEN': 'sum', 
                 'TOTAL_SIG_LEN': 'sum',
@@ -954,7 +974,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
         # the abundance and the relative abundance is calculated based on the specified column (abu_col)
         # Other depth-based and adjusted-genomic-content-based abundance values are also included
         lvl_df['ABUNDANCE'] = lvl_df[abu_col]
-        lvl_df['REL_ABUNDANCE'] = lvl_df[abu_col]/lvl_df[abu_col].sum()
+        lvl_df['REL_ABUNDANCE'] = lvl_df[abu_col]/total_abundance
 
         lvl_df['ABUNDANCE_DEPTH'] = lvl_df['DEPTH']
         if lvl_df['DEPTH'].sum() > 0:
@@ -967,32 +987,30 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
         # Add the "NOTE" column.  The default value is empty, signifying that there's no known reason why this strain is not displayed.
         # A note is added if a taxa has a rank with higher resolution than the target rank (signature-level), suggesting potential bias.
         # However, this note is not added if the taxa has a corresponding signature to support the observation.
-        lvl_df['NOTE'] = ""
-        if major_ranks[rank] > major_ranks[tg_rank]:
-            lvl_df['NOTE'] = f"Not shown ({rank}-result could be biased); "
-        
-        idx = lvl_df['SIG_LEVEL'] > major_ranks[tg_rank]
-        lvl_df.loc[idx, 'NOTE'] = ""
+        lvl_df['NOTE'] = ""        
+        idx = lvl_df['SIG_LEVEL'] < major_ranks[rank]
+        lvl_df.loc[idx, 'NOTE'] = f"Not shown ({rank}-result could be biased); "
+
+        # add filtered reason to NOTE column
+        filtered = (lvl_df['BEST_SIG_COV'] < mc)
+        lvl_df.loc[filtered, 'NOTE'] += "Filtered out (minCov > " + lvl_df.loc[filtered, 'BEST_SIG_COV'].astype(str) + "); "
+        filtered = (lvl_df['READ_COUNT'] < mr)
+        lvl_df.loc[filtered, 'NOTE'] += "Filtered out (minReads > " + lvl_df.loc[filtered, 'READ_COUNT'].astype(str) + "); "
+        filtered = (lvl_df['COVERED_SIG_LEN'] < ml)
+        lvl_df.loc[filtered, 'NOTE'] += "Filtered out (minLen > " + lvl_df.loc[filtered, 'COVERED_SIG_LEN'].astype(str) + "); "
+
+        if mz > 0:
+            filtered = (lvl_df['ZSCORE'] > mz)
+            lvl_df.loc[filtered, 'NOTE'] += "Filtered out (maxZscore < " + lvl_df.loc[filtered, 'ZSCORE'].astype(str) + "); "
 
         # concart ranks-dataframe to the report-dataframe
         rep_df = pd.concat([lvl_df.sort_values('ABUNDANCE', ascending=False), rep_df], ignore_index=True)
 
+    # add the filtered reason to NOTE column
     rep_df["SIG_COV"] = rep_df["COVERED_SIG_LEN"]/rep_df["TOTAL_SIG_LEN"]
+    rep_df["READ_IDT"] = (rep_df["TOTAL_BP_MAPPED"]-rep_df["TOTAL_BP_MISMATCH"])/rep_df["TOTAL_READ_LEN"]
     rep_df["COVERED_MAPPED_SIG_COV"] = rep_df["COVERED_SIG_LEN"]/rep_df["MAPPED_SIG_LEN"]
-    rep_df["DOC"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["TOTAL_SIG_LEN"]
     rep_df["COVERED_SIG_DEPTH"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["COVERED_SIG_LEN"]
-
-    # add filtered reason to NOTE column
-    filtered = (rep_df['BEST_SIG_COV'] < mc)
-    rep_df.loc[filtered, 'NOTE'] += "Filtered out (minCov > " + rep_df.loc[filtered, 'SIG_COV'].astype(str) + "); "
-    filtered = (rep_df['READ_COUNT'] < mr)
-    rep_df.loc[filtered, 'NOTE'] += "Filtered out (minReads > " + rep_df.loc[filtered, 'READ_COUNT'].astype(str) + "); "
-    filtered = (rep_df['COVERED_SIG_LEN'] < ml)
-    rep_df.loc[filtered, 'NOTE'] += "Filtered out (minLen > " + rep_df.loc[filtered, 'COVERED_SIG_LEN'].astype(str) + "); "
-
-    if mz > 0:
-        filtered = (rep_df['ZSCORE'] > mz)
-        rep_df.loc[filtered, 'NOTE'] += "Filtered out (maxZscore < " + rep_df.loc[filtered, 'ZSCORE'].astype(str) + "); "
 
     rep_df.drop(columns=['TAXID'], inplace=True)
     rep_df.rename(columns={"LVL_NAME": "NAME", "LVL_TAXID": "TAXID"}, inplace=True)
@@ -1047,10 +1065,10 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
             'TOTAL_BP_MISMATCH', 'COVERED_SIG_LEN', 'BEST_SIG_COV', 'DEPTH', 'REL_ABUNDANCE',
-            'PARENT_NAME', 'PARENT_TAXID', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 'SIG_COV', 
-            'MAPPED_SIG_LEN', 'TOTAL_SIG_LEN', 'ZSCORE', 'GENOMIC_CONTENT_ADJ', 'ABUNDANCE', 
-            'REL_ABUNDANCE_DEPTH', 'REL_ABUNDANCE_GC', 'SIG_LEVEL', 'GENOME_COUNT', 'GENOME_SIZE', 
-            'NOTE']
+            'PARENT_NAME', 'PARENT_TAXID', 'TOTAL_READ_LEN', 'READ_IDT', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 
+            'SIG_COV', 'MAPPED_SIG_LEN', 'TOTAL_SIG_LEN', 'ZSCORE', 'GENOMIC_CONTENT_ADJ', 
+            'ABUNDANCE', 'REL_ABUNDANCE_DEPTH', 'REL_ABUNDANCE_GC', 'SIG_LEVEL', 'GENOME_COUNT', 
+            'GENOME_SIZE', 'NOTE']
 
 
     # replace SIG_LEVEL back to their original ranks
@@ -1159,7 +1177,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
     input_file = " ".join([x.name for x in reads])
 
     # Minimap2 options for short reads: the options here is essentailly the -x 'sr' equivalent with some modifications on scoring
-    sr_opts = f"--sr --frag=yes -b0 -r100 -f1000,5000 -n2 -m20 -s40 -g100 -2K50m -k24 -w12 -A1 -B{mm_penalty} -O30 -E30 -a -N20 --secondary=no --sam-hit-only"
+    sr_opts = f"-x sr -A1 -B{mm_penalty} -s30 -a -N20 --secondary=no --sam-hit-only"
     
     if presetx != 'sr':
         sr_opts = f"-x {presetx} -N20 --secondary=no --sam-hit-only -a"
@@ -1603,18 +1621,18 @@ def main(args):
 
         if mapped_r_cnt:
             res_df = aggregate_taxonomy(res, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
-            print_message( "Done taxonomy rolling up.", argvs.silent, begin_t, logfile )
+            print_message( "Done taxonomy aggregation.", argvs.silent, begin_t, logfile )
 
             if not len(res_df):
                 print_message( "No qualified taxonomy profiled.", argvs.silent, begin_t, logfile )
             else:
-                # generate output files
+                # generate output results
                 if argvs.format == "biom":
                     generaete_biom_file(res_df, out_fp, argvs.dbLevel, argvs.prefix)
                 else:
                     generaete_taxonomy_file(res_df, out_fp, outfile_full, argvs.format)
                 # generate lineage file
-                target_idx = (res_df['LEVEL']==argvs.dbLevel)
+                target_idx = (res_df['LEVEL']==argvs.dbLevel) & (res_df['NOTE']=="")
                 target_df = res_df.loc[target_idx, ['ABUNDANCE','TAXID']]
                 tax_num = len(target_df)
                 if tax_num:

@@ -79,8 +79,8 @@ class TestGottcha2Integration(unittest.TestCase):
         # Check the results
         self.assertEqual(mapped_reads, 3)  # 2 + 1 from the mocked data
         self.assertEqual(len(result), 2)   # Two reference sequences
-        self.assertEqual(result['ABC|1|100|12345']['LL'], 20)  # Linear length of merged regions
-        self.assertEqual(result['XYZ|1|100|67890']['LL'], 10)
+        self.assertEqual(result['ABC|1|100|12345']['SL'], 20)  # Linear length of merged regions
+        self.assertEqual(result['XYZ|1|100|67890']['SL'], 10)
         self.assertEqual(tol_alignment_count, 3)
         self.assertEqual(tol_invalid_match_count, 0)
         self.assertEqual(tol_exclude_acc_count, 0)
@@ -110,8 +110,8 @@ class TestGottcha2Integration(unittest.TestCase):
         
         # Test the function with mock data
         test_data = {
-            'ABC|1|100|12345': {'MB': 100, 'MR': 10, 'NM': 2, 'LL': 50},
-            'XYZ|1|100|67890': {'MB': 50, 'MR': 5, 'NM': 1, 'LL': 25}
+            'ABC|1|100|12345': {'MB': 100, 'MR': 10, 'NM': 2, 'SL': 50},
+            'XYZ|1|100|67890': {'MB': 50, 'MR': 5, 'NM': 1, 'SL': 25}
         }
         
         # Call the function (will use mocked pandas operations)
