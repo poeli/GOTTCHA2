@@ -2,7 +2,7 @@
 
 __author__    = "Po-E (Paul) Li, Bioscience Division, Los Alamos National Laboratory"
 __credits__   = ["Po-E Li", "Anna Chernikov", "Jason Gans", "Tracey Freites", "Patrick Chain"]
-__version__   = "2.1.9.1"
+__version__   = "2.1.10"
 __copyright__ = """
 Copyright (2019). Traid National Security, LLC. This material was produced
 under U.S. Government contract DE-AC52-06NA25396 for Los Alamos National Laboratory
@@ -25,6 +25,7 @@ MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public 
 import argparse as ap, textwrap as tw
 import sys, os, time, subprocess
 import pandas as pd
+import numpy as np
 import gc
 from re import search, findall
 from multiprocessing import Pool, set_start_method
@@ -85,7 +86,7 @@ def parse_params(ver, args):
                     help="Adjust options for Nanopore reads. It will overwrite the other options to '-xm map-ont -mr 1 -mf 0 -mz 0'.")
 
     p.add_argument( '-pm','--mismatch', metavar='<INT>', type=int, default=10,
-                    help="Mismatch penalty for the aligner. [default: 10]")
+                    help="Mismatch penalty for the aligner. [default: 10] (deprecated)")
 
     p.add_argument('-e', '--extract', metavar='TAXON[,TAXON2,...]', type=str, default=None,
                     help=(
@@ -116,8 +117,8 @@ def parse_params(ver, args):
                     help='Format of the results; available options include tsv, csv or biom. [default: tsv]')
 
     p.add_argument( '-r','--relAbu', metavar='[FIELD]', type=str, default='DEPTH',
-                    choices=['DEPTH','READ_COUNT','GENOMIC_CONTENT_ADJ'],
-                    help='The field will be used to calculate relative abundance. You can specify one of the following fields: "DEPTH", "READ_COUNT", "GENOMIC_CONTENT_ADJ". [default: DEPTH]')
+                    choices=['DEPTH','READ_COUNT','GENOMIC_CONTENT_EST'],
+                    help='The field will be used to calculate relative abundance. You can specify one of the following fields: "DEPTH", "READ_COUNT", "GENOMIC_CONTENT_EST". [default: DEPTH]')
 
     p.add_argument( '-t','--threads', metavar='<INT>', type=int, default=1,
                     help="Number of threads [default: 1]")
@@ -132,23 +133,26 @@ def parse_params(ver, args):
                     choices=['sr','map-pb','map-ont'],
                     help="The preset option (-x) for minimap2. Default value 'sr' for short reads. [default: sr]")
 
-    p.add_argument( '-mc','--minCov', metavar='<FLOAT>', type=float, default=0.005,
-                    help="Minimum signature coverage to be considered valid in abundance calculation. [default: 0.005]")
+    p.add_argument( '-mc','--minCov', metavar='<FLOAT>', type=float, default=0,
+                    help="Minimum signature coverage to be considered valid in abundance calculation. [default: 0]")
 
-    p.add_argument( '-mr','--minReads', metavar='<INT>', type=int, default=3,
-                    help="Minimum number of reads to be considered valid in abundance calculation. [default: 3]")
+    p.add_argument( '-mr','--minReads', metavar='<INT>', type=int, default=0,
+                    help="Minimum number of reads to be considered valid in abundance calculation. [default: 0]")
 
-    p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=60,
-                    help="Minimum signature length to be considered valid in abundance calculation. [default: 60]")
+    p.add_argument( '-ml','--minLen', metavar='<INT>', type=int, default=0,
+                    help="Minimum signature length to be considered valid in abundance calculation. [default: 0]")
 
-    p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=30,
-                    help="Maximum estimated z-score for the depths of the mapped region. Set to 0 to disable. [default: 30]")
+    p.add_argument( '-mz','--maxZscore', metavar='<FLOAT>', type=float, default=0,
+                    help="Maximum estimated z-score for the depths of the mapped region. Set to 0 to disable. [default: 0]")
 
-    p.add_argument( '-mf','--matchFactor', metavar='<FLOAT>', type=float, default=0.5,
-                    help="Minimum fraction of the read or signature fragment required to be considered a valid match. [default: 0.5]")
+    p.add_argument( '-mf','--matchFactor', metavar='<FLOAT>', type=float, default=0,
+                    help="Minimum fraction of the read or signature fragment required to be considered a valid match. [default: 0]")
+
+    p.add_argument( '-A','--ani', metavar='<FLOAT>[,<FLOAT>]', type=str, default='0.95,0.99',
+                    help="ANI cutoff for the taxonomic classification. The first value is the cutoff for the species level, and the second value is the cutoff for the strain level. [default: 0.95,0.99]")
 
     p.add_argument( '-nc','--noCutoff', action="store_true",
-                    help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0 -mf 0 -mz 0]")
+                    help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0 -mf 0 -mz 0 -A 0,0]")
 
     p.add_argument( '-a','--accExclusionList', metavar='[FILE]', required=False, type=ap.FileType('r'),
                     help="List of excluded accessions from the database (e.g. plasmid accessions).")
@@ -245,6 +249,7 @@ def parse_params(ver, args):
         args_parsed.minLen = 0
         args_parsed.matchFactor = 0
         args_parsed.maxZscore = 0
+        args_parsed.ani = '0,0'
 
     if args_parsed.nanopore:
         args_parsed.presetx = 'map-ont'
@@ -340,12 +345,13 @@ def worker(filename, chunkStart, chunkSize, matchFactor, excluded_acc_list=None)
     exclude_acc_count=0
 
     for line in lines:
-        k, r, n, rd, rs, rq, flag, cigr, read_len, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
+        k, r, nm, nid, rd, rs, rq, flag, cigr, read_len, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
         # parsed values from SAM line
         # only k, r, n, pri_aln_flag, valid_flag are used
         # k: reference name
         # r: (start, end) of mapped region
-        # n: number of mismatches
+        # nm: number of mismatches
+        # nid: number of indels
         # read_len: read length
         # pri_aln_flag: whether this is a primary alignment
         # valid_match_flag: whether this alignment meets match criteria
@@ -362,14 +368,16 @@ def worker(filename, chunkStart, chunkSize, matchFactor, excluded_acc_list=None)
                 res[k]['REGIONS'] = merge_ranges(res[k]['REGIONS']+[r])
                 res[k]["MB"] += r[1] - r[0] + 1
                 res[k]["MR"] += 1
-                res[k]["NM"] += n
+                res[k]["NM"] += nm
+                res[k]["ID"] += nid
                 res[k]["RL"] += read_len
             else:
                 res[k]={}
                 res[k]["REGIONS"] = [r]
                 res[k]["MB"] = r[1] - r[0] + 1
                 res[k]["MR"] = 1
-                res[k]["NM"] = n
+                res[k]["NM"] = nm
+                res[k]["ID"] = nid
                 res[k]["RL"] = read_len
     
     return (res, len(lines), invalid_match_count, exclude_acc_count)
@@ -409,20 +417,32 @@ def parse(line, matchFactor, excluded_acc_list=None):
     """
     temp = line.split('\t')
     name = temp[0]
+    cigr = temp[5]
 
     # parse the CIGAR string for match length, search all r'(\d+)M' and sum all matches
-    mapped_len = sum(int(num) for num in findall(r'(\d+)M', temp[5]))
+    mapped_len = sum(int(num) for num in findall(r'(\d+)M', cigr))
+
+    # count for deletion and insertion length
+    ins_len = 0
+    del_len = 0
+    if 'I' in cigr:
+        ins_len = sum(int(num) for num in findall(r'(\d+)I', cigr)) if 'I' in cigr else 0
+    if 'D' in cigr:
+        del_len = sum(int(num) for num in findall(r'(\d+)D', cigr)) if 'D' in cigr else 0
+    indel_len = ins_len + del_len
 
     mismatch_len = search(r'NM:i:(\d+)', line)
     mismatch_len = int(mismatch_len.group(1)) if mismatch_len else 0
     start = int(temp[3])
-    end   = start + mapped_len - 1
+    end   = start + mapped_len + del_len - 1
     read_len = len(temp[9])
 
     ref = temp[2].rstrip('|')
     ref = ref[: -2 if ref.endswith(".0") else None ]
 
     (acc, rstart, rend, taxid) = ref.split('|')
+
+    # this is a workaround for the case when the reference name is not in the format of "accession|start|end|taxid"
     rlen = int(rend)-int(rstart)+1
 
     # check if this is a primary alignment 256=secondary, 2048=supplementary
@@ -444,7 +464,7 @@ def parse(line, matchFactor, excluded_acc_list=None):
     if excluded_acc_list:
         valid_acc_flag = False if acc in excluded_acc_list else True
 
-    return ref, (start, end), mismatch_len, name, temp[9], temp[10], temp[1], temp[5], read_len, primary_alignment_flag, valid_match_flag, valid_acc_flag
+    return ref, (start, end), mismatch_len, indel_len, name, temp[9], temp[10], temp[1], temp[5], read_len, primary_alignment_flag, valid_match_flag, valid_acc_flag
 
 def time_spend(start):
     """
@@ -561,6 +581,7 @@ def process_sam_file(sam_fn, numthreads, matchFactor, excluded_acc_list=None):
                 result[k]["MB"] += res[k]["MB"]
                 result[k]["MR"] += res[k]["MR"]
                 result[k]["NM"] += res[k]["NM"]
+                result[k]["ID"] += res[k]["ID"]
                 result[k]["RL"] += res[k]["RL"]
             else:
                 result[k]={}
@@ -711,7 +732,7 @@ def OptimizedFastaWorker(filename, chunkStart, chunkSize, taxa_dict, qualified_t
         processed_lines += 1
         
         try:
-            ref, region, nm, rname, rseq, rq, flag, cigr, read_len, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
+            ref, region, nm, nid, rname, rseq, rq, flag, cigr, read_len, pri_aln_flag, valid_match_flag, valid_acc_flag = parse(line, matchFactor, excluded_acc_list)
             
             if not (pri_aln_flag and valid_match_flag and valid_acc_flag):
                 continue
@@ -720,6 +741,7 @@ def OptimizedFastaWorker(filename, chunkStart, chunkSize, taxa_dict, qualified_t
             try:
                 acc, rstart, rend, ref_taxid = ref.split('|')
             except ValueError:
+                logging.debug(f"Malformed reference: {ref}")
                 continue  # Skip malformed references
             
             # Check if we already know what qualified taxa this reference belongs to
@@ -832,6 +854,7 @@ def group_refs_to_strains(r):
         'MB':'sum', # of mapped bases
         'MR':'sum', # of mapped reads
         'NM':'sum', # of mismatches
+        'ID':'sum', # of mismatches
         'SC':'sum', # covered signature length
         'SLEN':'sum', # length of this signature fragments (mapped)
         'RL':'sum' # length of the reads
@@ -846,6 +869,7 @@ def group_refs_to_strains(r):
         "MB":   "TOTAL_BP_MAPPED",
         "MR":   "READ_COUNT",
         "NM":   "TOTAL_BP_MISMATCH",
+        "ID":   "TOTAL_BP_INDEL",
         "RL":   "TOTAL_READ_LEN",
         "SC":   "COVERED_SIG_LEN",
         "SLEN": "MAPPED_SIG_LEN", # length of the mapped signature fragments (entire fragment)
@@ -866,14 +890,14 @@ def group_refs_to_strains(r):
     str_df['GENOME_COUNT'] = 1
 
     # infer total genome contents
-    str_df['GENOMIC_CONTENT_ADJ'] = str_df['TOTAL_BP_MAPPED']/str_df['TOTAL_SIG_LEN']*str_df['GENOME_SIZE']
+    str_df['GENOMIC_CONTENT_EST'] = str_df['TOTAL_BP_MAPPED']/str_df['TOTAL_SIG_LEN']*str_df['GENOME_SIZE']
 
     # estimate z-score
     str_df['ZSCORE'] = str_df.apply(lambda x: pile_lvl_zscore(x.TOTAL_BP_MAPPED, x.TOTAL_SIG_LEN, x.COVERED_SIG_LEN), axis=1)
 
     return str_df
 
-def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
+def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz, ani_species, ani_strain):
     """
     Aggregate strain-level results to higher taxonomic ranks.
     
@@ -896,6 +920,8 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
         mr (int): Minimum read count threshold
         ml (int): Minimum covered signature length threshold
         mz (float): Maximum Z-score threshold (0 to disable)
+        ani_species (float): ANI cutoff for species level
+        ani_strain (float): ANI cutoff for strain level
         
     Returns:
         pandas.DataFrame: DataFrame with rolled-up taxonomy at all ranks
@@ -926,13 +952,11 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
     # decide top signature level, convert the rank to the corresponding number
     str_df['SIG_LEVEL'] = str_df['SIG_LEVEL'].map(major_ranks)
 
-    total_abundance = str_df[abu_col].sum()
+    # infer the ANI for each strain
+    str_df["SIG_COV"] = str_df["COVERED_SIG_LEN"]/str_df["TOTAL_SIG_LEN"]
+    str_df = infer_ani(str_df, error_rate=0.005, conf=0.95)
 
-    # # get qualified strain
-    # qualified_idx = (str_df['COVERED_SIG_LEN']/str_df['TOTAL_SIG_LEN'] >= mc) & \
-    #                 (str_df['READ_COUNT'] >= mr) & \
-    #                 (str_df['COVERED_SIG_LEN'] >= ml) & \
-    #                 ((str_df['ZSCORE'] <= mz) if mz > 0 else True)
+    total_abundance = str_df[abu_col].sum()
 
     # iterate through ranks to get index and value
     for idx, rank in enumerate(ranks):
@@ -957,6 +981,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
                 'TOTAL_BP_MAPPED': 'sum', 
                 'READ_COUNT': 'sum', 
                 'TOTAL_BP_MISMATCH': 'sum',
+                'TOTAL_BP_INDEL': 'sum',
                 'TOTAL_READ_LEN': 'sum',
                 'COVERED_SIG_LEN': 'sum', 
                 'MAPPED_SIG_LEN': 'sum', 
@@ -964,11 +989,21 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
                 'DEPTH': 'sum', 
                 'BEST_SIG_COV': 'max', 
                 'ZSCORE': 'min',
-                'GENOMIC_CONTENT_ADJ': 'sum',
+                'GENOMIC_CONTENT_EST': 'sum',
                 'SIG_LEVEL': 'max',
                 'GENOME_COUNT': 'count', 
-                'GENOME_SIZE': 'sum'
-            }).reset_index().copy()
+                'GENOME_SIZE': 'sum',
+                'ANI_CI95': 'max',
+            })
+
+            # find the index of the row with max ANI_CI95 in each group
+            # pull out the low/high bounds from those rows
+            idx = str_df.groupby('LVL_NAME')['ANI_CI95'].idxmax()
+            ani_bounds = ( str_df
+                        .loc[idx, ['LVL_NAME', 'ANI_NAIVE', 'ANI_CI95_LH']]
+                        .set_index('LVL_NAME') )
+            lvl_df = lvl_df.join(ani_bounds).reset_index()
+
 
         # calculate the relative abundance of each taxon
         # the abundance and the relative abundance is calculated based on the specified column (abu_col)
@@ -981,17 +1016,27 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
             lvl_df['REL_ABUNDANCE_DEPTH'] = lvl_df['ABUNDANCE_DEPTH']/lvl_df['ABUNDANCE_DEPTH'].sum()
         else:
             lvl_df['REL_ABUNDANCE_DEPTH'] = 0
-        lvl_df['ABUNDANCE_GC'] = lvl_df['GENOMIC_CONTENT_ADJ']
-        lvl_df['REL_ABUNDANCE_GC'] = lvl_df['GENOMIC_CONTENT_ADJ']/lvl_df['GENOMIC_CONTENT_ADJ'].sum()
+        lvl_df['ABUNDANCE_GC'] = lvl_df['GENOMIC_CONTENT_EST']
+        lvl_df['REL_ABUNDANCE_GC'] = lvl_df['GENOMIC_CONTENT_EST']/lvl_df['GENOMIC_CONTENT_EST'].sum()
 
         # Add the "NOTE" column.  The default value is empty, signifying that there's no known reason why this strain is not displayed.
         # A note is added if a taxa has a rank with higher resolution than the target rank (signature-level), suggesting potential bias.
         # However, this note is not added if the taxa has a corresponding signature to support the observation.
-        lvl_df['NOTE'] = ""        
+        lvl_df['NOTE'] = ""
+
+        # add not shown reason
         idx = lvl_df['SIG_LEVEL'] < major_ranks[rank]
         lvl_df.loc[idx, 'NOTE'] = f"Not shown ({rank}-result could be biased); "
 
-        # add filtered reason to NOTE column
+        # add ANI reason
+        if rank == 'strain':
+            filtered = (lvl_df['ANI_CI95'] < ani_strain)
+            lvl_df.loc[filtered, 'NOTE'] += "Filtered out (strain ANI > " + lvl_df.loc[filtered, 'ANI_CI95'].astype(str) + "); "
+        elif rank == 'species':
+            filtered = (lvl_df['ANI_CI95'] < ani_species)
+            lvl_df.loc[filtered, 'NOTE'] += "Filtered out (species ANI > " + lvl_df.loc[filtered, 'ANI_CI95'].astype(str) + "); "
+
+        # add filtered reason
         filtered = (lvl_df['BEST_SIG_COV'] < mc)
         lvl_df.loc[filtered, 'NOTE'] += "Filtered out (minCov > " + lvl_df.loc[filtered, 'BEST_SIG_COV'].astype(str) + "); "
         filtered = (lvl_df['READ_COUNT'] < mr)
@@ -1006,11 +1051,17 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
         # concart ranks-dataframe to the report-dataframe
         rep_df = pd.concat([lvl_df.sort_values('ABUNDANCE', ascending=False), rep_df], ignore_index=True)
 
-    # add the filtered reason to NOTE column
-    rep_df["SIG_COV"] = rep_df["COVERED_SIG_LEN"]/rep_df["TOTAL_SIG_LEN"]
-    rep_df["READ_IDT"] = (rep_df["TOTAL_BP_MAPPED"]-rep_df["TOTAL_BP_MISMATCH"])/rep_df["TOTAL_READ_LEN"]
-    rep_df["COVERED_MAPPED_SIG_COV"] = rep_df["COVERED_SIG_LEN"]/rep_df["MAPPED_SIG_LEN"]
-    rep_df["COVERED_SIG_DEPTH"] = rep_df["TOTAL_BP_MAPPED"]/rep_df["COVERED_SIG_LEN"]
+    # add additional columns
+    rep_df = rep_df.assign(
+        SIG_COV                = rep_df["COVERED_SIG_LEN"]/rep_df["TOTAL_SIG_LEN"],
+        READ_IDT               = (rep_df["TOTAL_BP_MAPPED"]-rep_df["TOTAL_BP_MISMATCH"])/rep_df["TOTAL_READ_LEN"],
+        COVERED_MAPPED_SIG_COV = rep_df["COVERED_SIG_LEN"]/rep_df["MAPPED_SIG_LEN"],
+        COVERED_SIG_DEPTH      = rep_df["TOTAL_BP_MAPPED"]/rep_df["COVERED_SIG_LEN"],
+    )
+
+    # add UniVec contamination to NOTE
+    filtered = (rep_df['LVL_NAME'].str.contains('UniVec'))
+    rep_df.loc[filtered, 'NOTE'] += "Not shown (UniVec); "
 
     rep_df.drop(columns=['TAXID'], inplace=True)
     rep_df.rename(columns={"LVL_NAME": "NAME", "LVL_TAXID": "TAXID"}, inplace=True)
@@ -1018,6 +1069,79 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz):
     logging.debug(f'rep_df: {rep_df}')
 
     return rep_df
+
+
+def infer_ani(df, error_rate=0.005, conf=0.95):
+    """
+    Estimate the Average Nucleotide Identity (ANI) together with 95% confidence intervals:
+    - removes the expected 0.5 % sequencing-error penalty
+    - widens the interval when only a fraction of the signature space is actually covered ( SIG_COV )
+    - project mismatches onto those unique positions
+    - automatically becomes narrower as more signature bases are covered    
+    """
+
+    df = df.copy()
+
+    # from scipy.stats import norm
+    # z = norm.ppf(0.5 + conf/2)  # ≈ 1.96
+    z = 1.959963984540054
+
+    # use only unique covered signature bases
+    n = df["COVERED_SIG_LEN"]
+    
+    # remove the expected 0.5 % sequencing-error penalty
+    m_rate = (df["TOTAL_BP_MISMATCH"]/df["TOTAL_BP_MAPPED"])
+    m_rate = m_rate.clip(lower=1e-12)  # avoid negative values
+
+    m_rate_adj = df["TOTAL_BP_MISMATCH"]*(1-error_rate)/df["TOTAL_BP_MAPPED"]
+    m_rate_adj = m_rate_adj.clip(lower=1e-12)  # avoid negative values
+
+    # observed ANI
+    p_hat = 1 - m_rate_adj
+    p = 1 - m_rate
+
+    # down-weight poor coverage
+    cov    = df["SIG_COV"].clip(lower=1e-12)  # avoid n_eff = 0
+    n_eff  = df["COVERED_SIG_LEN"] * cov      # down-weight poor coverage
+    
+    # # use only unique covered signature bases
+    # n = df["TOTAL_BP_MAPPED"]
+    # # project mismatches onto those unique positions
+    # m = df["TOTAL_BP_MISMATCH"]*(1-error_rate)
+    # # indel
+    # i = df["TOTAL_BP_INDEL"]
+
+    # # observed ANI
+    # p_hat = (2*n + i - 2*m) / (2*n + i)
+
+    # # down-weight poor coverage
+    # cov    = df["SIG_COV"].clip(lower=1e-10)  # avoid n_eff = 0
+    # n_eff  = df["COVERED_SIG_LEN"] * cov      # down-weight poor coverage
+
+    z2     = z ** 2
+    center = (p_hat + z2 / (2 * n_eff)) / (1 + z2 / n_eff)
+    hw     = (z * np.sqrt(
+                (p_hat * (1 - p_hat)) / n_eff + z2 / (4 * n_eff ** 2)
+             ) / (1 + z2 / n_eff))
+    
+    # observed-identity CI
+    id_low, id_high = center - hw, center + hw
+    
+    # convert to true ANI by adding the sequencing-error penalty
+    ani_naive  = np.minimum(1, p)
+    ani_low  = np.clip(id_low, 0, 1)
+    ani_high = np.clip(id_high, 0, 1)
+
+    ani_ci95 = "[" + ani_low.round(6).astype(str) + "-" + ani_high.round(6).astype(str) + "]"
+
+    df = df.assign(
+        ANI_NAIVE   = ani_naive.round(6),
+        ANI_CI95    = center.round(6),
+        ANI_CI95_LH = ani_ci95.round(6)
+    )
+
+    return df
+
 
 def pile_lvl_zscore(tol_bp, tol_sig_len, linear_len):
     """
@@ -1065,8 +1189,9 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
             'TOTAL_BP_MISMATCH', 'COVERED_SIG_LEN', 'BEST_SIG_COV', 'DEPTH', 'REL_ABUNDANCE',
-            'PARENT_NAME', 'PARENT_TAXID', 'TOTAL_READ_LEN', 'READ_IDT', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 
-            'SIG_COV', 'MAPPED_SIG_LEN', 'TOTAL_SIG_LEN', 'ZSCORE', 'GENOMIC_CONTENT_ADJ', 
+            'ANI_NAIVE', 'ANI_CI95', 'ANI_CI95_LH', 'PARENT_NAME', 'PARENT_TAXID', 
+            'TOTAL_READ_LEN', 'READ_IDT', 'TOTAL_BP_INDEL', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 
+            'SIG_COV', 'MAPPED_SIG_LEN', 'TOTAL_SIG_LEN', 'ZSCORE', 'GENOMIC_CONTENT_EST', 
             'ABUNDANCE', 'REL_ABUNDANCE_DEPTH', 'REL_ABUNDANCE_GC', 'SIG_LEVEL', 'GENOME_COUNT', 
             'GENOME_SIZE', 'NOTE']
 
@@ -1177,7 +1302,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
     input_file = " ".join([x.name for x in reads])
 
     # Minimap2 options for short reads: the options here is essentailly the -x 'sr' equivalent with some modifications on scoring
-    sr_opts = f"-x sr -A1 -B{mm_penalty} -s30 -a -N20 --secondary=no --sam-hit-only"
+    sr_opts = f"-x sr -s60 -a -N20 --secondary=no --sam-hit-only"
     
     if presetx != 'sr':
         sr_opts = f"-x {presetx} -N20 --secondary=no --sam-hit-only -a"
@@ -1528,23 +1653,25 @@ def main(args):
     print_message( f"Starting GOTTCHA (v{__version__})", argvs.silent, begin_t, logfile )
     print_message( f"Arguments and dependencies checked:", argvs.silent, begin_t, logfile )
     if argvs.input:
-        print_message( f"    Input reads      : {[x.name for x in argvs.input]}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Input SAM file   : {samfile}",           argvs.silent, begin_t, logfile )
-    print_message( f"    Database         : {argvs.database}",    argvs.silent, begin_t, logfile )
+        print_message( f"    Input reads        : {[x.name for x in argvs.input]}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Input SAM file     : {samfile}",           argvs.silent, begin_t, logfile )
+    print_message( f"    Database           : {argvs.database}",    argvs.silent, begin_t, logfile )
     if argvs.accExclusionList:
-        print_message( f"    Exclude accession: {argvs.accExclusionList.name}", argvs.silent, begin_t, logfile )
-    print_message( f"    Database level   : {argvs.dbLevel}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Mismatch penalty : {argvs.mismatch}",    argvs.silent, begin_t, logfile )
-    print_message( f"    Abundance        : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Output path      : {argvs.outdir}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Prefix           : {argvs.prefix}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Extract seqs     : {argvs.extract}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Threads          : {argvs.threads}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal SIG cov  : {argvs.minCov}",      argvs.silent, begin_t, logfile ) #SIG_COV
-    print_message( f"    Minimal SIG len  : {argvs.minLen}",      argvs.silent, begin_t, logfile ) #COVERED_SIG_LEN
-    print_message( f"    Minimal reads    : {argvs.minReads}",    argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal mFactor  : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
-    print_message( f"    Maximal zScore   : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
+        print_message( f"    Exclude accession  : {argvs.accExclusionList.name}", argvs.silent, begin_t, logfile )
+    print_message( f"    Database level     : {argvs.dbLevel}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Mismatch penalty   : {argvs.mismatch}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Abundance          : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Output path        : {argvs.outdir}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Prefix             : {argvs.prefix}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Extract seqs       : {argvs.extract}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Threads            : {argvs.threads}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal SIG cov    : {argvs.minCov}",      argvs.silent, begin_t, logfile ) #SIG_COV
+    print_message( f"    Minimal SIG len    : {argvs.minLen}",      argvs.silent, begin_t, logfile ) #COVERED_SIG_LEN
+    print_message( f"    Minimal reads      : {argvs.minReads}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal mFactor    : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
+    print_message( f"    Maximal zScore     : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
+    print_message( f"    ANI(species,strain): {argvs.ani}",   argvs.silent, begin_t, logfile )
+
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
@@ -1620,7 +1747,11 @@ def main(args):
         gc.collect()
 
         if mapped_r_cnt:
-            res_df = aggregate_taxonomy(res, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore)
+            # ANI default to species 0.95, strain 0.99
+            (ani_species, ani_strain) = [float(x) for x in (argvs.ani.split(',') + ['0.99'])[:2]]
+
+            # aggregate the results
+            res_df = aggregate_taxonomy(res, argvs.relAbu, argvs.dbLevel , argvs.minCov, argvs.minReads, argvs.minLen, argvs.maxZscore, ani_species, ani_strain)
             print_message( "Done taxonomy aggregation.", argvs.silent, begin_t, logfile )
 
             if not len(res_df):

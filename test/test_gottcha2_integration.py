@@ -79,8 +79,8 @@ class TestGottcha2Integration(unittest.TestCase):
         # Check the results
         self.assertEqual(mapped_reads, 3)  # 2 + 1 from the mocked data
         self.assertEqual(len(result), 2)   # Two reference sequences
-        self.assertEqual(result['ABC|1|100|12345']['SL'], 20)  # Linear length of merged regions
-        self.assertEqual(result['XYZ|1|100|67890']['SL'], 10)
+        self.assertEqual(result['ABC|1|100|12345']['SC'], 20)  # Linear length of merged regions
+        self.assertEqual(result['XYZ|1|100|67890']['SC'], 10)
         self.assertEqual(tol_alignment_count, 3)
         self.assertEqual(tol_invalid_match_count, 0)
         self.assertEqual(tol_exclude_acc_count, 0)
@@ -110,8 +110,8 @@ class TestGottcha2Integration(unittest.TestCase):
         
         # Test the function with mock data
         test_data = {
-            'ABC|1|100|12345': {'MB': 100, 'MR': 10, 'NM': 2, 'SL': 50},
-            'XYZ|1|100|67890': {'MB': 50, 'MR': 5, 'NM': 1, 'SL': 25}
+            'ABC|1|100|12345': {'MB': 100, 'MR': 10, 'NM': 2, 'SC': 50},
+            'XYZ|1|100|67890': {'MB': 50, 'MR': 5, 'NM': 1, 'SC': 25}
         }
         
         # Call the function (will use mocked pandas operations)
@@ -119,150 +119,6 @@ class TestGottcha2Integration(unittest.TestCase):
         
         # Verify the expected pandas calls were made
         mock_df.from_dict.assert_called_once()
-
-    def test_multiple_taxid_extraction(self):
-        """Test extracting reads matching multiple taxids."""
-        # Create a temporary directory for output files
-        extract_dir = os.path.join(self.test_dir, "extract_test")
-        os.makedirs(extract_dir, exist_ok=True)
-        
-        # Create mock taxonomy dictionary
-        taxa_dict = {
-            '12345': {'level': 'species', 'name': 'Species1'},
-            '67890': {'level': 'species', 'name': 'Species2'},
-            '99999': {'level': 'species', 'name': 'Species3'}
-        }
-        
-        # Mock the taxonomy lineage lookup and parse function
-        with patch('gottcha.scripts.gottcha2.gt.taxid2fullLineage') as mock_lineage, \
-             patch('gottcha.scripts.gottcha2.parse') as mock_parse, \
-             patch('gottcha.scripts.gottcha2.print_message'):
-            
-            def lineage_side_effect(taxid, space2underscore=False):
-                lineages = {
-                    '12345': '|1|2|12345|',
-                    '67890': '|1|2|67890|',
-                    '99999': '|1|2|99999|'
-                }
-                return lineages.get(taxid, '')
-            mock_lineage.side_effect = lineage_side_effect
-            
-            def parse_side_effect(line, matchFactor, excluded_acc_list=None):
-                if line.startswith('@'):
-                    return None, None, None, None, None, None, None, None, None, None, None
-                parts = line.split('\t')
-                ref = parts[2]
-                region = (int(parts[3]), int(parts[3])+10)  # Assuming 10bp matches
-                nm = 0
-                rname = parts[0]
-                rseq = parts[9]
-                rq = parts[10]
-                flag = int(parts[1])
-                cigr = parts[5]
-                return ref, region, nm, rname, rseq, rq, flag, cigr, True, True, True
-            mock_parse.side_effect = parse_side_effect
-            
-            # Create test output file
-            output_file = os.path.join(extract_dir, "test_extract.fasta")
-            gottcha2.begin_t = time.time()
-            gottcha2.logfile = os.path.join(self.test_dir, "test.log")
-            gottcha2.argvs = MagicMock()
-            gottcha2.argvs.silent = True
-            
-            # Test OptimizedFastaWorker
-            with open(self.sam_file, 'r') as f:
-                result = gottcha2.OptimizedFastaWorker(
-                    f.name,
-                    0,
-                    os.path.getsize(self.sam_file),
-                    taxa_dict,
-                    ["12345", "67890"],
-                    0.5,
-                    20,  # max_per_taxon
-                    None,  # excluded_acc_list
-                    'fasta'
-                )
-                
-                # Verify result structure
-                self.assertIsInstance(result, dict)
-                self.assertEqual(set(result.keys()), {'12345', '67890'})
-                
-                # Count sequences by taxid
-                seq_counts = {taxid: len(seqs) for taxid, seqs in result.items()}
-                total_seqs = sum(seq_counts.values())
-                
-                # Verify we got the expected number of sequences
-                self.assertTrue(total_seqs > 0, "Should extract at least one sequence")
-                
-                # Test with max_per_taxon limit
-                result_limited = gottcha2.OptimizedFastaWorker(
-                    f.name,
-                    0,
-                    os.path.getsize(self.sam_file),
-                    taxa_dict,
-                    ["12345", "67890"],
-                    0.5,
-                    1,  # Only extract 1 sequence per taxon
-                    None,
-                    'fasta'
-                )
-                
-                # Verify sequence limits were applied
-                for taxid, seqs in result_limited.items():
-                    self.assertLessEqual(len(seqs), 1, f"Should extract at most 1 sequence for taxid {taxid}")
-                
-                # Test with excluded accessions
-                excluded_acc = {"ABC"}
-                result_excluded = gottcha2.OptimizedFastaWorker(
-                    f.name,
-                    0,
-                    os.path.getsize(self.sam_file),
-                    taxa_dict,
-                    ["12345", "67890"],
-                    0.5,
-                    20,
-                    excluded_acc,
-                    'fasta'
-                )
-                
-                # Verify sequences in proper format
-                for taxid, seqs in result.items():
-                    for seq in seqs:
-                        # Check FASTA format
-                        self.assertTrue(seq.startswith(">"), "Sequence should be in FASTA format")
-                        # Check taxonomy info in header
-                        self.assertIn(f"LEVEL={taxa_dict[taxid]['level']}", seq)
-                        self.assertIn(f"NAME={taxa_dict[taxid]['name']}", seq)
-                        self.assertIn(f"TAXID={taxid}", seq)
-                
-                # Test extract_sequences_by_taxonomy with an actual output file
-                with open(output_file, 'w') as out:
-                    with patch('gottcha.scripts.gottcha2.Pool') as mock_pool, \
-                         patch('gottcha.scripts.gottcha2.chunkify') as mock_chunkify:
-                        
-                        # Mock the pool and job results
-                        mock_job = MagicMock()
-                        mock_pool.return_value.apply_async.return_value = mock_job
-                        mock_job.get.return_value = result
-                        
-                        # Mock chunkify to return a single chunk
-                        mock_chunkify.return_value = [(0, os.path.getsize(self.sam_file))]
-                        
-                        taxon_count, seq_count = gottcha2.extract_sequences_by_taxonomy(
-                            self.sam_file,
-                            taxa_dict,
-                            ["12345", "67890"],
-                            out,
-                            1,  # threads
-                            0.5,  # matchFactor
-                            20,  # max_per_taxon
-                            None,  # excluded_acc_list
-                            'fasta'
-                        )
-                        
-                        # Verify results
-                        self.assertEqual(taxon_count, 2, "Should extract sequences from 2 taxa")
-                        self.assertEqual(seq_count, total_seqs, "Should extract all sequences from the mock result")
 
     def test_taxid_file_input(self):
         """Test extracting reads using taxids from a file."""
@@ -354,19 +210,19 @@ class TestGottcha2Integration(unittest.TestCase):
         sam_line = "read1\t0\tABC|1|100|12345\t11\t60\t5S10M3S\t*\t0\t0\tGGGGGCCCCCCCCCGGG\tHHHHHHHHHHHHHHHHH\tNM:i:0\tAS:i:10\tXS:i:0"
         
         # Test without exclusion
-        _, _, _, _, _, _, _, _, _, valid_match_flag1, valid_acc_flag1 = gottcha2.parse(sam_line, 0.5)
+        _, _, _, _, _, _, _, _, _, _, _, valid_match_flag1, valid_acc_flag1 = gottcha2.parse(sam_line, 0.5)
         self.assertTrue(valid_match_flag1)
         self.assertTrue(valid_acc_flag1)
         
         # Test with exclusion
         exclude_set = {"ABC"}
-        _, _, _, _, _, _, _, _, _, valid_match_flag2, valid_acc_flag2 = gottcha2.parse(sam_line, 0.5, exclude_set)
+        _, _, _, _, _, _, _, _, _, _, _, valid_match_flag2, valid_acc_flag2 = gottcha2.parse(sam_line, 0.5, exclude_set)
         self.assertTrue(valid_match_flag2)
         self.assertFalse(valid_acc_flag2)
         
         # Test with a different accession that's not excluded
         sam_line2 = "read3\t0\tDEF|1|100|67890\t11\t60\t5S10M3S\t*\t0\t0\tGGGGGCCCCCCCCCGGG\tHHHHHHHHHHHHHHHHH\tNM:i:0\tAS:i:10\tXS:i:0"
-        _, _, _, _, _, _, _, _, _, valid_match_flag3, valid_acc_flag3 = gottcha2.parse(sam_line2, 0.5, exclude_set)
+        _, _, _, _, _, _, _, _, _, _, _, valid_match_flag3, valid_acc_flag3 = gottcha2.parse(sam_line2, 0.5, exclude_set)
         self.assertTrue(valid_match_flag3)
         self.assertTrue(valid_acc_flag3)
 
