@@ -148,13 +148,13 @@ def parse_params(ver, args):
     p.add_argument( '-mf','--matchFactor', metavar='<FLOAT>', type=float, default=0,
                     help="Minimum fraction of the read or signature fragment required to be considered a valid match. [default: 0]")
 
-    p.add_argument( '-A','--ani', metavar='<FLOAT>[,<FLOAT>]', type=str, default='0.95,0.99',
-                    help="ANI cutoff for the taxonomic classification. The first value is the cutoff for the species level, and the second value is the cutoff for the strain level. [default: 0.95,0.99]")
+    p.add_argument( '-a','--ani', metavar='<FLOAT>[,<FLOAT>]', type=str, default='0.95,0.99',
+                    help="ANI thresholds for taxonomic aggregation: species level (first value), strain level (second value). [default: 0.95,0.99]")
 
     p.add_argument( '-nc','--noCutoff', action="store_true",
                     help="Remove all cutoffs. This option is equivalent to use [-mc 0 -mr 0 -ml 0 -mf 0 -mz 0 -A 0,0]")
 
-    p.add_argument( '-a','--accExclusionList', metavar='[FILE]', required=False, type=ap.FileType('r'),
+    p.add_argument( '-A','--accExclusionList', metavar='[FILE]', required=False, type=ap.FileType('r'),
                     help="List of excluded accessions from the database (e.g. plasmid accessions).")
 
     p.add_argument( '-rm','--removeMultipleHits', choices=['yes', 'no', 'auto'], default='auto', type=str,
@@ -983,7 +983,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz, ani_species, ani_str
                 'TOTAL_BP_MISMATCH': 'sum',
                 'TOTAL_BP_INDEL': 'sum',
                 'TOTAL_READ_LEN': 'sum',
-                'COVERED_SIG_LEN': 'sum', 
+                'COVERED_SIG_LEN': 'sum',
                 'MAPPED_SIG_LEN': 'sum', 
                 'TOTAL_SIG_LEN': 'sum',
                 'DEPTH': 'sum', 
@@ -1188,9 +1188,9 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     """
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
-            'TOTAL_BP_MISMATCH', 'COVERED_SIG_LEN', 'BEST_SIG_COV', 'DEPTH', 'REL_ABUNDANCE',
-            'ANI_NAIVE', 'ANI_CI95', 'ANI_CI95_LH', 'PARENT_NAME', 'PARENT_TAXID', 
-            'TOTAL_READ_LEN', 'READ_IDT', 'TOTAL_BP_INDEL', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 
+            'ANI_CI95', 'COVERED_SIG_LEN', 'BEST_SIG_COV', 'DEPTH', 'REL_ABUNDANCE',
+            'ANI_NAIVE', 'ANI_CI95_LH', 'PARENT_NAME', 'PARENT_TAXID', 
+            'TOTAL_READ_LEN', 'READ_IDT', 'TOTAL_BP_MISMATCH', 'TOTAL_BP_INDEL', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 
             'SIG_COV', 'MAPPED_SIG_LEN', 'TOTAL_SIG_LEN', 'ZSCORE', 'GENOMIC_CONTENT_EST', 
             'ABUNDANCE', 'REL_ABUNDANCE_DEPTH', 'REL_ABUNDANCE_GC', 'SIG_LEVEL', 'GENOME_COUNT', 
             'GENOME_SIZE', 'NOTE']
