@@ -79,7 +79,7 @@ class TestGottcha2Integration(unittest.TestCase):
         # Check the results
         self.assertEqual(mapped_reads, 3)  # 2 + 1 from the mocked data
         self.assertEqual(len(result), 2)   # Two reference sequences
-        self.assertEqual(result['ABC|1|100|12345']['SC'], 20)  # Linear length of merged regions
+        self.assertEqual(result['ABC|1|100|12345']['SC'], 20)  # Sum of coverage for merged regions
         self.assertEqual(result['XYZ|1|100|67890']['SC'], 10)
         self.assertEqual(tol_alignment_count, 3)
         self.assertEqual(tol_invalid_match_count, 0)
