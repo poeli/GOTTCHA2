@@ -1657,21 +1657,20 @@ def main(args):
     print_message( f"    Input SAM file     : {samfile}",           argvs.silent, begin_t, logfile )
     print_message( f"    Database           : {argvs.database}",    argvs.silent, begin_t, logfile )
     if argvs.accExclusionList:
-        print_message( f"    Exclude accession  : {argvs.accExclusionList.name}", argvs.silent, begin_t, logfile )
-    print_message( f"    Database level     : {argvs.dbLevel}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Mismatch penalty   : {argvs.mismatch}",    argvs.silent, begin_t, logfile )
-    print_message( f"    Abundance          : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Output path        : {argvs.outdir}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Prefix             : {argvs.prefix}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Extract seqs       : {argvs.extract}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Threads            : {argvs.threads}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal SIG cov    : {argvs.minCov}",      argvs.silent, begin_t, logfile ) #SIG_COV
-    print_message( f"    Minimal SIG len    : {argvs.minLen}",      argvs.silent, begin_t, logfile ) #COVERED_SIG_LEN
-    print_message( f"    Minimal reads      : {argvs.minReads}",    argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal mFactor    : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
-    print_message( f"    Maximal zScore     : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
-    print_message( f"    ANI(species,strain): {argvs.ani}",   argvs.silent, begin_t, logfile )
 
+    print_message( f"    Exclude accession: {argvs.accExclusionList.name}", argvs.silent, begin_t, logfile )
+    print_message( f"    Database level   : {argvs.dbLevel}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Mismatch penalty : {argvs.mismatch}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Abundance        : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Output path      : {argvs.outdir}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Prefix           : {argvs.prefix}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Extract seqs     : {argvs.extract}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Threads          : {argvs.threads}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal L_DOC    : {argvs.minCov}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal L_LEN    : {argvs.minLen}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal reads    : {argvs.minReads}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal mFactor  : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
+    print_message( f"    Maximal zScore   : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
