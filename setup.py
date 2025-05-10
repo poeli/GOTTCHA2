@@ -13,7 +13,7 @@ setup(
     author_email = "po-e@lanl.gov",
     description = ("Genomic Origin Through Taxonomic CHAllenge (GOTTCHA) v2"),
     license = "BSD-3-Clause",
-    keywords = ['bioinformatics', 'taxonomy', 'profiler'],
+    keywords = ['bioinformatics', 'taxonomy', 'profiler', 'metagenomics'],
     url = "https://github.com/poeli/GOTTCHA2",
     packages=['gottcha'],
     package_dir={'GOTTCHA2': './'},
