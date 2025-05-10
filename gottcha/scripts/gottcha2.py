@@ -1657,8 +1657,7 @@ def main(args):
     print_message( f"    Input SAM file     : {samfile}",           argvs.silent, begin_t, logfile )
     print_message( f"    Database           : {argvs.database}",    argvs.silent, begin_t, logfile )
     if argvs.accExclusionList:
-
-    print_message( f"    Exclude accession: {argvs.accExclusionList.name}", argvs.silent, begin_t, logfile )
+        print_message( f"    Exclude accession: {argvs.accExclusionList.name}", argvs.silent, begin_t, logfile )
     print_message( f"    Database level   : {argvs.dbLevel}",     argvs.silent, begin_t, logfile )
     print_message( f"    Mismatch penalty : {argvs.mismatch}",    argvs.silent, begin_t, logfile )
     print_message( f"    Abundance        : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
