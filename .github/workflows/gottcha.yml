@@ -21,16 +21,17 @@ jobs:
     
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
         with:
           path: GOTTCHA2
           
-      - name: Setup Miniconda
-        uses: conda-incubator/setup-miniconda@v3
+      - name: Setup micromamba
+        uses: mamba-org/setup-micromamba@v2
         with:
           environment-file: GOTTCHA2/environment.yml
-          activate-environment: gottcha
-          use-mamba: true
+          environment-name: gottcha
+          cache-environment: true
+          init-shell: true
           
       - name: Cache conda environment
         uses: actions/cache@v3
@@ -42,12 +43,12 @@ jobs:
             
       - name: Install Setuptools and Testing Dependencies
         run: |
-          mamba install -n gottcha setuptools
+          micromamba install -n gottcha setuptools
           pip install pytest pytest-cov
 
       - name: Check Installation
         run: |
-          mamba list
+          micromamba list
           cd GOTTCHA2
           python setup.py install
           gottcha2 profile --help
