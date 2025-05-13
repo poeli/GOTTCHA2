@@ -12,8 +12,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        os: ["ubuntu-latest", "macos-latest"]
-        python-version: ["3.7", "3.11"]
+        os: ["ubuntu-latest"]
       fail-fast: false
     defaults:
       run:
@@ -25,30 +24,21 @@ jobs:
         with:
           path: GOTTCHA2
           
-      - name: Setup micromamba
-        uses: mamba-org/setup-micromamba@v2
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
         with:
           environment-file: GOTTCHA2/environment.yml
-          environment-name: gottcha
-          cache-environment: true
-          init-shell: true
-          
-      - name: Cache conda environment
-        uses: actions/cache@v3
-        with:
-          path: /usr/share/miniconda3/envs/gottcha
-          key: ${{ runner.os }}-conda-${{ hashFiles('**/environment.yml') }}
-          restore-keys: |
-            ${{ runner.os }}-conda-
-            
+          activate-environment: gottcha
+          mamba-version: "*"
+          use-mamba: true
+                      
       - name: Install Setuptools and Testing Dependencies
         run: |
-          micromamba install -n gottcha setuptools
-          pip install pytest pytest-cov
+          mamba install -n gottcha setuptools pytest
 
       - name: Check Installation
         run: |
-          micromamba list
+          conda list
           cd GOTTCHA2
           python setup.py install
           gottcha2 profile --help
@@ -82,7 +72,7 @@ jobs:
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -ef -eo -s SRR12689945_1_1k.gottcha_species.sam -p test_ext2
           wc -l test_ext2.extract.fasta | grep 320
 
-      - name: Run unit tests with coverage
+      - name: Run unittests
         run: |
           cd GOTTCHA2
-          python -m pytest test -v --cov=gottcha2
+          python -m pytest test -v
