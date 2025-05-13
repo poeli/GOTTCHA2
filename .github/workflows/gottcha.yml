@@ -32,15 +32,15 @@ jobs:
           mamba-version: "*"
           use-mamba: true
                       
-      - name: Install Setuptools and Testing Dependencies
+      - name: Install Dependencies
         run: |
-          mamba install -n gottcha setuptools pytest
+          mamba install -n gottcha pytest
 
       - name: Check Installation
         run: |
           conda list
           cd GOTTCHA2
-          python setup.py install
+          pip install .
           gottcha2 profile --help
 
       - name: Run testing dataset - Basic profile tests
