@@ -1,7 +1,7 @@
 name: gottcha
 channels:
-  - conda-forge
   - bioconda
+  - conda-forge
   - defaults
 dependencies:
   - minimap2>=2.17

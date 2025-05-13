@@ -1186,14 +1186,16 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     Returns:
         bool: True if successful
     """
+
     # Fields for full mode
     cols = ['LEVEL', 'NAME', 'TAXID', 'READ_COUNT', 'TOTAL_BP_MAPPED',
-            'ANI_CI95', 'COVERED_SIG_LEN', 'BEST_SIG_COV', 'DEPTH', 'REL_ABUNDANCE',
-            'ANI_NAIVE', 'ANI_CI95_LH', 'PARENT_NAME', 'PARENT_TAXID', 
-            'TOTAL_READ_LEN', 'READ_IDT', 'TOTAL_BP_MISMATCH', 'TOTAL_BP_INDEL', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 
-            'SIG_COV', 'MAPPED_SIG_LEN', 'TOTAL_SIG_LEN', 'ZSCORE', 'GENOMIC_CONTENT_EST', 
-            'ABUNDANCE', 'REL_ABUNDANCE_DEPTH', 'REL_ABUNDANCE_GC', 'SIG_LEVEL', 'GENOME_COUNT', 
-            'GENOME_SIZE', 'NOTE']
+            'ANI_CI95', 'COVERED_SIG_LEN', 'BEST_SIG_COV', 'DEPTH', 'REL_ABUNDANCE', # summary
+            'PARENT_NAME', 'PARENT_TAXID', # parants
+            'TOTAL_READ_LEN', 'READ_IDT', 'TOTAL_BP_MISMATCH', 'TOTAL_BP_INDEL', 'ANI_NAIVE', 'ANI_CI95_LH', # read stats
+            'SIG_COV', 'MAPPED_SIG_LEN', 'TOTAL_SIG_LEN', 'COVERED_SIG_DEPTH', 'COVERED_MAPPED_SIG_COV', 'ZSCORE', # signature stats
+            'GENOMIC_CONTENT_EST', 'ABUNDANCE', 'REL_ABUNDANCE_DEPTH', 'REL_ABUNDANCE_GC', # abundance
+            'SIG_LEVEL', 'GENOME_COUNT', 'GENOME_SIZE', 'NOTE' # ref genome
+            ]
 
 
     # replace SIG_LEVEL back to their original ranks
