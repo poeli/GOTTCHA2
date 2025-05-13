@@ -42,12 +42,12 @@ jobs:
             
       - name: Install Setuptools and Testing Dependencies
         run: |
-          conda install -n gottcha setuptools
+          mamba install -n gottcha setuptools
           pip install pytest pytest-cov
 
       - name: Check Installation
         run: |
-          conda list
+          mamba list
           cd GOTTCHA2
           python setup.py install
           gottcha2 profile --help
