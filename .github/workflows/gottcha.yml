@@ -32,10 +32,6 @@ jobs:
           mamba-version: "*"
           use-mamba: true
                       
-      - name: Install Dependencies
-        run: |
-          mamba install -n gottcha pytest
-
       - name: Check Installation
         run: |
           conda list
@@ -75,4 +71,4 @@ jobs:
       - name: Run unittests
         run: |
           cd GOTTCHA2
-          python -m pytest test -v
+          python -m unittest discover test -v
