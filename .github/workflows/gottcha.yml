@@ -15,7 +15,7 @@ jobs:
       fail-fast: false
       matrix:
         os: ["ubuntu-latest"]
-        python-version: ["3.11"]
+        python-version: ["3.8", "3.11"]
     defaults:
       run:
         shell: bash -el {0}
@@ -26,28 +26,17 @@ jobs:
         with:
           path: GOTTCHA2
 
-      # - name: Setup Miniconda
-      #   uses: conda-incubator/setup-miniconda@v3
-      #   with:
-      #     environment-file: GOTTCHA2/environment.yml
-      #     python-version: ${{ matrix.python-version }}
-      #     activate-environment: gottcha
-      #     use-mamba: true
-      
-      - name: Setup micromamba
-        uses: mamba-org/setup-micromamba@v2
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
         with:
           environment-file: GOTTCHA2/environment.yml
           python-version: ${{ matrix.python-version }}
           activate-environment: gottcha
           use-mamba: true
-          cache-dependencies: true
-          cache-minutes: 60
-          post-cleanup: 'all'      
 
       - name: Installation
         run: |
-          mamba info
+          conda info
           cd GOTTCHA2
           pip install .
           gottcha2 profile --help

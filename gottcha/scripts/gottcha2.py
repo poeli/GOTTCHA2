@@ -1144,7 +1144,7 @@ def infer_ani(df, error_rate=0.005, conf=0.95):
     df = df.assign(
         ANI_NAIVE   = ani_naive.round(6),
         ANI_CI95    = center.round(6),
-        ANI_CI95_LH = ani_ci95.round(6)
+        ANI_CI95_LH = ani_ci95
     )
 
     return df
