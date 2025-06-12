@@ -22,7 +22,7 @@ be useful, but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the GNU General Public License for more details.
 """
 
-import argparse as ap, textwrap as tw
+import argparse as ap
 import sys, os, time, subprocess
 import pandas as pd
 import numpy as np
@@ -132,6 +132,9 @@ def parse_params(ver, args):
     p.add_argument( '-xm','--presetx', metavar='<STR>', type=str, required=False, default='sr',
                     choices=['sr','map-pb','map-ont'],
                     help="The preset option (-x) for minimap2. Default value 'sr' for short reads. [default: sr]")
+
+    p.add_argument( '--m2options', metavar='<STR>', type=str, required=False, default='auto',
+                    help="The minimap2 mapping options for short reads. Do not use this option unless you know what you are doing. [default: 'auto']")
 
     p.add_argument( '-mc','--minCov', metavar='<FLOAT>', type=float, default=0,
                     help="Minimum signature coverage to be considered valid in abundance calculation. [default: 0]")
@@ -256,6 +259,12 @@ def parse_params(ver, args):
         args_parsed.minReads = 1
         args_parsed.matchFactor = 0
         args_parsed.maxZscore = 0
+
+    if args_parsed.m2options == 'auto':
+        if args_parsed.presetx == 'sr':
+            args_parsed.m2options = '-s60'
+        else:
+            args_parsed.m2options = ''
 
     return args_parsed
 
@@ -863,7 +872,8 @@ def group_refs_to_strains(r):
     str_df['TS'] = str_df['TAXID'].map(df_stats['TotalLength'])
     str_df['bLC'] = str_df['SC']/str_df['TS'] # bLC:  best linear coverage of a strain
     str_df['RD'] = str_df['MB']/str_df['TS'] # roll-up DoC
-
+    str_df['NOTE'] = str_df['TAXID'].map(df_stats['Note']).fillna('') # note for the strain
+    
     # rename columns
     str_df.rename(columns={
         "MB":   "TOTAL_BP_MAPPED",
@@ -971,7 +981,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz, ani_species, ani_str
         # rollup strains that make cutoffs
         lvl_df = None
         if rank == 'strain':
-            lvl_df = str_df
+            lvl_df = str_df.copy()
         else:
             lvl_df = str_df.groupby('LVL_NAME').agg({
                 'LEVEL':'first',
@@ -994,6 +1004,7 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz, ani_species, ani_str
                 'GENOME_COUNT': 'count', 
                 'GENOME_SIZE': 'sum',
                 'ANI_CI95': 'max',
+                'NOTE': lambda x: '; '.join(list(x.unique()))
             })
 
             # find the index of the row with max ANI_CI95 in each group
@@ -1003,7 +1014,6 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz, ani_species, ani_str
                         .loc[idx, ['LVL_NAME', 'ANI_NAIVE', 'ANI_CI95_LH']]
                         .set_index('LVL_NAME') )
             lvl_df = lvl_df.join(ani_bounds).reset_index()
-
 
         # calculate the relative abundance of each taxon
         # the abundance and the relative abundance is calculated based on the specified column (abu_col)
@@ -1019,14 +1029,15 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz, ani_species, ani_str
         lvl_df['ABUNDANCE_GC'] = lvl_df['GENOMIC_CONTENT_EST']
         lvl_df['REL_ABUNDANCE_GC'] = lvl_df['GENOMIC_CONTENT_EST']/lvl_df['GENOMIC_CONTENT_EST'].sum()
 
-        # Add the "NOTE" column.  The default value is empty, signifying that there's no known reason why this strain is not displayed.
+        # if 'NOTE' is not empty, add '; ' to the end of the string
+        lvl_df['NOTE'] = lvl_df['NOTE'].apply(lambda x: f'{x}; ' if x else x)
+
         # A note is added if a taxa has a rank with higher resolution than the target rank (signature-level), suggesting potential bias.
         # However, this note is not added if the taxa has a corresponding signature to support the observation.
-        lvl_df['NOTE'] = ""
 
         # add not shown reason
         idx = lvl_df['SIG_LEVEL'] < major_ranks[rank]
-        lvl_df.loc[idx, 'NOTE'] = f"Not shown ({rank}-result could be biased); "
+        lvl_df.loc[idx, 'NOTE'] += f"Not shown ({rank}-result could be biased); "
 
         # add ANI reason
         if rank == 'strain':
@@ -1058,10 +1069,6 @@ def aggregate_taxonomy(r, abu_col, tg_rank, mc, mr, ml, mz, ani_species, ani_str
         COVERED_MAPPED_SIG_COV = rep_df["COVERED_SIG_LEN"]/rep_df["MAPPED_SIG_LEN"],
         COVERED_SIG_DEPTH      = rep_df["TOTAL_BP_MAPPED"]/rep_df["COVERED_SIG_LEN"],
     )
-
-    # add UniVec contamination to NOTE
-    filtered = (rep_df['LVL_NAME'].str.contains('UniVec'))
-    rep_df.loc[filtered, 'NOTE'] += "Not shown (UniVec); "
 
     rep_df.drop(columns=['TAXID'], inplace=True)
     rep_df.rename(columns={"LVL_NAME": "NAME", "LVL_TAXID": "TAXID"}, inplace=True)
@@ -1137,7 +1144,7 @@ def infer_ani(df, error_rate=0.005, conf=0.95):
     df = df.assign(
         ANI_NAIVE   = ani_naive.round(6),
         ANI_CI95    = center.round(6),
-        ANI_CI95_LH = ani_ci95.round(6)
+        ANI_CI95_LH = ani_ci95
     )
 
     return df
@@ -1204,8 +1211,8 @@ def generaete_taxonomy_file(rep_df, o, fullreport_o, fmt="tsv"):
     rep_df['SIG_LEVEL'] = rep_df['SIG_LEVEL'].map(major_ranks)
 
     # get qualified taxa
-    qualified_idx = (rep_df['NOTE']=="")
-    qualified_df = rep_df.loc[qualified_idx, cols[:10]]
+    non_qualified_idx = rep_df['NOTE'].str.contains('Filtered out', na=False) | rep_df['NOTE'].str.contains('Not shown', na=False) 
+    qualified_df = rep_df.loc[~non_qualified_idx, cols[:10]]
 
     sep = ',' if fmt=='csv' else '\t'
     
@@ -1276,7 +1283,7 @@ def generaete_lineage_file(target_df, o):
 
     return True
 
-def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
+def readMapping(reads, db, threads, mm_options, presetx, samfile, logfile):
     """
     Map reads to the reference database using minimap2.
     
@@ -1288,7 +1295,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
         reads (list): List of input read file objects
         db (str): Path to the minimap2 database (without .mmi extension)
         threads (int): Number of threads to use
-        mm_penalty (int): Mismatch penalty for alignment
+        mm_options (str): Minimap2 options for read mapping
         presetx (str): Minimap2 preset mode ('sr', 'map-pb', or 'map-ont')
         samfile (str): Output SAM file path
         logfile (str): Log file path
@@ -1304,7 +1311,7 @@ def readMapping(reads, db, threads, mm_penalty, presetx, samfile, logfile):
     input_file = " ".join([x.name for x in reads])
 
     # Minimap2 options for short reads: the options here is essentailly the -x 'sr' equivalent with some modifications on scoring
-    sr_opts = f"-x sr -s60 -a -N20 --secondary=no --sam-hit-only"
+    sr_opts = f"-x sr {mm_options} -a -N20 --secondary=no --sam-hit-only"
     
     if presetx != 'sr':
         sr_opts = f"-x {presetx} -N20 --secondary=no --sam-hit-only -a"
@@ -1434,17 +1441,35 @@ def loadDatabaseStats(db_stats_file):
         7. Min
         8. TotalLength
         9. GenomeSize
+       10. Note (optional)
     """
+
+    # Determine the number of columns in the stats file
+    header = pd.read_csv(db_stats_file, nrows=0, sep='\t', header=None)
+    valid_col_count = len(header.columns)
+
+    usecols = [0, 2, 7, 8]
+    names = ['DB_level', 'Taxid', 'TotalLength', 'Note']
+
+    if valid_col_count == 10:
+        usecols=[0, 2, 7, 8, 9]
+        names=['DB_level', 'Taxid', 'TotalLength', 'GenomeSize', 'Note']
 
     # Set header to None to support files without headers
     df_stats = pd.read_csv(db_stats_file,
                             low_memory=False,
                             sep='\t',
                             header=None,
-                            usecols=[0, 2, 7, 8],
-                            names=['DB_level', 'Taxid', 'TotalLength', 'GenomeSize'],
+                            usecols=usecols,
+                            names=names,
                             dtype={'DB_level': str, 'Taxid': str},
                             index_col='Taxid')
+
+    # If 'Note' column is not present, create it with empty strings
+    if not 'Note' in df_stats:
+        df_stats['Note'] = ''
+    if not 'GenomeSize' in df_stats:
+        df_stats['GenomeSize'] = 0
 
     # Remove the row with index 'Taxid' if it exists
     # This is to handle the case when the stats file having the header
@@ -1659,19 +1684,20 @@ def main(args):
     print_message( f"    Input SAM file     : {samfile}",           argvs.silent, begin_t, logfile )
     print_message( f"    Database           : {argvs.database}",    argvs.silent, begin_t, logfile )
     if argvs.accExclusionList:
-        print_message( f"    Exclude accession: {argvs.accExclusionList.name}", argvs.silent, begin_t, logfile )
-    print_message( f"    Database level   : {argvs.dbLevel}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Mismatch penalty : {argvs.mismatch}",    argvs.silent, begin_t, logfile )
-    print_message( f"    Abundance        : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Output path      : {argvs.outdir}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Prefix           : {argvs.prefix}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Extract seqs     : {argvs.extract}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Threads          : {argvs.threads}",     argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal L_DOC    : {argvs.minCov}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal L_LEN    : {argvs.minLen}",      argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal reads    : {argvs.minReads}",    argvs.silent, begin_t, logfile )
-    print_message( f"    Minimal mFactor  : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
-    print_message( f"    Maximal zScore   : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
+        print_message( f"    Exclude accession  : {argvs.accExclusionList.name}", argvs.silent, begin_t, logfile )
+    print_message( f"    Database level     : {argvs.dbLevel}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Mismatch penalty   : {argvs.mismatch}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Abundance          : {argvs.relAbu}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Output path        : {argvs.outdir}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Prefix             : {argvs.prefix}",      argvs.silent, begin_t, logfile )
+    print_message( f"    Extract seqs       : {argvs.extract}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Threads            : {argvs.threads}",     argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal SIG cov    : {argvs.minCov}",      argvs.silent, begin_t, logfile ) #SIG_COV
+    print_message( f"    Minimal SIG len    : {argvs.minLen}",      argvs.silent, begin_t, logfile ) #COVERED_SIG_LEN
+    print_message( f"    Minimal reads      : {argvs.minReads}",    argvs.silent, begin_t, logfile )
+    print_message( f"    Minimal mFactor    : {argvs.matchFactor}", argvs.silent, begin_t, logfile )
+    print_message( f"    Maximal zScore     : {argvs.maxZscore}",   argvs.silent, begin_t, logfile )
+    print_message( f"    ANI(species,strain): {argvs.ani}",   argvs.silent, begin_t, logfile )
 
     #load taxonomy
     print_message( "Loading taxonomy information...", argvs.silent, begin_t, logfile )
@@ -1696,7 +1722,7 @@ def main(args):
     if os.path.isfile( argvs.database + ".stats" ):
         df_stats = loadDatabaseStats(argvs.database+".stats")
     else:
-        print_message( f"ERROR: {argvs.database+".stats"} not found.", argvs.silent, begin_t, logfile, errorout=1)
+        print_message( f"ERROR: {argvs.database+'.stats'} not found.", argvs.silent, begin_t, logfile, errorout=1)
 
     print_message( f" - {df_stats.shape[0]} entries loaded.", argvs.silent, begin_t, logfile )
     print_message( f" - signatures at {df_stats['DB_level'].unique()} levels loaded.", argvs.silent, begin_t, logfile )
@@ -1709,7 +1735,7 @@ def main(args):
     #main process
     if argvs.input:
         print_message( "Running read-mapping...", argvs.silent, begin_t, logfile )
-        exitcode, cmd, msg = readMapping( argvs.input, argvs.database, argvs.threads, argvs.mismatch, argvs.presetx, samfile, logfile)
+        exitcode, cmd, msg = readMapping( argvs.input, argvs.database, argvs.threads, argvs.m2options, argvs.presetx, samfile, logfile)
         gc.collect()
         print_message( f"Logfile saved to {logfile}.", argvs.silent, begin_t, logfile )
         print_message( f"COMMAND: {cmd}", argvs.silent, begin_t, logfile )
@@ -1763,7 +1789,9 @@ def main(args):
                 else:
                     generaete_taxonomy_file(res_df, out_fp, outfile_full, argvs.format)
                 # generate lineage file
-                target_idx = (res_df['LEVEL']==argvs.dbLevel) & (res_df['NOTE']=="")
+                target_idx = (res_df['LEVEL']==argvs.dbLevel) & \
+                                (res_df['NOTE'].str.contains('Filtered out', na=False) == False) & \
+                                (res_df['NOTE'].str.contains('Not shown', na=False) == False)
                 target_df = res_df.loc[target_idx, ['ABUNDANCE','TAXID']]
                 tax_num = len(target_df)
                 if tax_num:

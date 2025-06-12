@@ -1,66 +1,76 @@
-name: gottcha
+name: GOTTCHA2 Tests
 
 on:
   push:
     branches: [ master, develop ]
   pull_request:
     branches: [ master, develop ]
+    
 jobs:
   functional-tests:
-    name: GOTTCHA2 test (${{ matrix.os }})
+    name: GOTTCHA2 test (${{ matrix.python-version }}, ${{ matrix.os }})
     runs-on: ${{ matrix.os }}
+
     strategy:
+      fail-fast: false
       matrix:
         os: ["ubuntu-latest"]
+        python-version: ["3.8", "3.11"]
     defaults:
       run:
-        shell: bash -l {0}
+        shell: bash -el {0}
+
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           path: GOTTCHA2
 
-      - uses: conda-incubator/setup-miniconda@v2
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v3
         with:
           environment-file: GOTTCHA2/environment.yml
+          python-version: ${{ matrix.python-version }}
           activate-environment: gottcha
+          use-mamba: true
 
-      - name: Install Setuptools and Testing Dependencies
+      - name: Installation
         run: |
-          conda install -n gottcha setuptools
-          pip install pytest
-
-      - name: Check Install
-        run: |
-          conda list
+          conda info
           cd GOTTCHA2
-          python setup.py install
+          pip install .
           gottcha2 profile --help
 
-      - name: Run testing dataset
+      - name: Run testing dataset - Basic profile tests
         run: |
           cd GOTTCHA2/test/
           tar -xzf gottcha2_database_Ebola_test.tar.gz
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz SRR12689945_2_1k.fastq.gz
+
+      - name: Run testing dataset - Advanced profile tests 
+        run: |
+          cd GOTTCHA2/test/
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz -nc
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i gottcha2_database_test/gottcha_db.species.fna.gz -np
           gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -s SRR12689945_1_1k.gottcha_species.sam
           grep 'Orthoebolavirus zairense' SRR12689945_1_1k.tsv
 
-      - name: Test extractions
+      - name: Test extract functionality - Simple extraction
         run: |
           cd GOTTCHA2/test/
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -e 3052462 -s SRR12689945_1_1k.gottcha_species.sam
           wc -l SRR12689945_1_1k.gottcha_species.extract.fasta | grep 1026
 
+      - name: Test extract functionality - Additional options
+        run: |
+          cd GOTTCHA2/test/
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -e 3052462:10:fastq -s SRR12689945_1_1k.gottcha_species.sam -p test_ext1
           wc -l test_ext1.extract.fastq | grep 40
-
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -ef -eo -s SRR12689945_1_1k.gottcha_species.sam -p test_ext2
           wc -l test_ext2.extract.fasta | grep 320
 
       - name: Run unittests
         run: |
           cd GOTTCHA2
-          python -m unittest discover -v -s test
+          python -m unittest discover test -v
