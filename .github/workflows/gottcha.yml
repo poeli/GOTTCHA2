@@ -137,6 +137,12 @@ jobs:
           wc -l output/test_ext1.extract.fastq | grep 40
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -ef -eo -b output/SRR12689945_1_1k.gottcha_species.bam -p test_ext2 -o output
           wc -l output/test_ext2.extract.fasta | grep 280
+          cd output
+          gottcha2 extract -b SRR12689945_1_1k.gottcha_species.bam -e 3052462 -p test_ext3
+          wc -l test_ext3.extract.fasta | grep 554
+          gottcha2 extract -b SRR12689945_1_1k.gottcha_species.bam -e 3052462
+          wc -l SRR12689945_1_1k.extract.fasta | grep 554
+
 
       - name: Run unittests
         run: |
