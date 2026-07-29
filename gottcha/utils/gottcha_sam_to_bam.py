@@ -60,7 +60,7 @@ def convert_sam_to_bam(input_sam: str, output_bam: str, threads=4, quiet=False) 
             else:
                 pysam.index(output_bam)
         except Exception as e:
-            logging.info(f"Warning: Could not create index: {e}", file=sys.stderr)
+            logging.warning(f"Warning: Could not create index: {e}")
         
     logging.info(f"Conversion complete: {output_bam}")
 
@@ -84,7 +84,7 @@ def main(argv):
         convert_sam_to_bam(args.input, args.output, args.threads, args.quiet)
         logging.info("SAM to BAM conversion successful.")
     except Exception as e:
-        logging.info(f"Error converting file: {e}", file=sys.stderr)
+        logging.error(f"Error converting file: {e}")
         sys.exit(1)
 
 if __name__ == "__main__":
