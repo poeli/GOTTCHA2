@@ -291,11 +291,6 @@ def parse_args(ver, args):
         help='Output file prefix. [default: input file prefix]',
     )
     output_group.add_argument(
-        '-c', '--stdout',
-        action='store_true',
-        help='Write the main profile table to standard output.',
-    )
-    output_group.add_argument(
         '--mpa',
         action='store_true',
         help='Generate output in MetaPhlAn format (*.mpa).',
@@ -728,24 +723,16 @@ def main(args):
     outfile_lineage = Path(argvs.outdir) / f"{argvs.prefix}.lineage.tsv"
     outfile_mpa = Path(argvs.outdir) / f"{argvs.prefix}.mpa.tsv"
 
-    # remove previous log file if exists
-    if logfile.is_file():
-        logfile.unlink()
+    #create output directory if not exists
+    Path(argvs.outdir).mkdir(parents=True, exist_ok=True)
 
-    out_fp = sys.stdout
-    outfile = "STDOUT"
+    outfile = Path(argvs.outdir) / f"{argvs.prefix}.tsv"
+    if argvs.format == "csv":
+        outfile = Path(argvs.outdir) / f"{argvs.prefix}.csv"
+    elif argvs.format == "biom":
+        outfile = Path(argvs.outdir) / f"{argvs.prefix}.biom"
 
-    if not argvs.stdout and not argvs.extractOnly:
-        #create output directory if not exists
-        Path(argvs.outdir).mkdir(parents=True, exist_ok=True)
-
-        outfile = Path(argvs.outdir) / f"{argvs.prefix}.tsv"
-        if argvs.format == "csv":
-            outfile = Path(argvs.outdir) / f"{argvs.prefix}.csv"
-        elif argvs.format == "biom":
-            outfile = Path(argvs.outdir) / f"{argvs.prefix}.biom"
-
-        out_fp = outfile.open("w", encoding="utf-8")
+    out_fp = outfile.open("w", encoding="utf-8")
 
     if argvs.extractOnly:
         # repalce bamfile name from ".gottcha_\w+.bam" to ".log"
@@ -1147,24 +1134,23 @@ def main(args):
         if not len(ref_to_extract_taxid):
             print_message("No qualified taxonomy profiled.", argvs.silent, begin_t, logfile)
 
-        if not argvs.stdout:
-            outfile = Path(argvs.outdir) / f"{argvs.prefix}.extract.{out_format.lower()}"
+        outfile = Path(argvs.outdir) / f"{argvs.prefix}.extract.{out_format.lower()}"
 
-            _args = (os.path.abspath(bamfile),
-                       taxa_dict,
-                       ref_to_extract_taxid,
-                       outfile.open("w", encoding="utf-8"),
-                       argvs.threads,
-                       argvs.matchFraction,
-                       argvs.matchIdentity,
-                       argvs.matchLength,
-                       max_per_taxon,
-                       acc_list,
-                       argvs.sigListAction,
-                       out_format)
-            taxon_count, seq_count = extract_reads.extract_sequences_by_taxonomy(*_args)
-            print_message(f"Done extracting {seq_count} sequences from {taxon_count} taxa to '{outfile}'.",
-                            argvs.silent, begin_t, logfile)
+        _args = (os.path.abspath(bamfile),
+                    taxa_dict,
+                    ref_to_extract_taxid,
+                    outfile.open("w", encoding="utf-8"),
+                    argvs.threads,
+                    argvs.matchFraction,
+                    argvs.matchIdentity,
+                    argvs.matchLength,
+                    max_per_taxon,
+                    acc_list,
+                    argvs.sigListAction,
+                    out_format)
+        taxon_count, seq_count = extract_reads.extract_sequences_by_taxonomy(*_args)
+        print_message(f"Done extracting {seq_count} sequences from {taxon_count} taxa to '{outfile}'.",
+                        argvs.silent, begin_t, logfile)
 
 if __name__ == '__main__':
     main(sys.argv[1:])
