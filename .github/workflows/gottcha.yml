@@ -129,6 +129,14 @@ jobs:
           count_tsv=$(grep "3052462" output/SRR12689945_1_1k.tsv | cut -f4)
           grep -c '>' output/test_ext.extract.fasta | grep $count_tsv
 
+      - name: Test extract functionality - Profile and extraction in one command
+        working-directory: test
+        run: |
+          set -euxo pipefail
+          gottcha2 profile -d gottcha2_database_test/gottcha_db.species.fna -i SRR12689945_1_1k.fastq.gz -e 3052462 -mi 0.9 -mf 0.9 -mg 100 -o output
+          count_tsv=$(grep "3052462" output/SRR12689945_1_1k.tsv | cut -f4)
+          grep -c '>' output/SRR12689945_1_1k.extract.fasta | grep $count_tsv
+
       - name: Test extract functionality - Additional extraction options
         working-directory: test
         run: |
@@ -137,6 +145,13 @@ jobs:
           wc -l output/test_ext1.extract.fastq | grep 40
           gottcha2 extract -d gottcha2_database_test/gottcha_db.species.fna -ef -eo -b output/SRR12689945_1_1k.gottcha_species.bam -p test_ext2 -o output
           wc -l output/test_ext2.extract.fasta | grep 280
+          cd output
+          gottcha2 extract -b SRR12689945_1_1k.gottcha_species.bam -e 3052462 -p test_ext3
+          count_tsv=$(grep "3052462" SRR12689945_1_1k.tsv | cut -f4)
+          grep -c '>' test_ext3.extract.fasta | grep $count_tsv
+          gottcha2 extract -b SRR12689945_1_1k.gottcha_species.bam -e 3052462 -p test_ext4
+          grep -c '>' test_ext4.extract.fasta | grep $count_tsv
+
 
       - name: Run unittests
         run: |

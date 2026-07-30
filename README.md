@@ -56,16 +56,16 @@ GOTTCHA2 profiler is written in Python 3 and uses minimap2 to map reads to signa
         `gottcha2 download -d standard`
 
 3. Run GOTTCHA2:
-        
-        Regular mode:
-
-        `gottcha2 profile -d /path/to/db/ -t 8 -i <FASTQ>`
-
-        OR
 
         Fast-profiling mode:
 
         `gottcha2 fast-profile -d /path/to/db/ -t 8 -i <FASTQ>`
+
+        OR
+
+        Regular mode:
+
+        `gottcha2 profile -d /path/to/db/ -t 8 -i <FASTQ>`
 
 -------------------------------------------------------------------
 ## RESULT
@@ -81,7 +81,7 @@ GOTTCHA2 can output the profiling results in either CSV, TSV or BIOM format.
 
 Please refer to https://github.com/poeli/GOTTCHA2/wiki for more details.
 
-## Notice of Copyright Assertion (O4958)
+## Notice of Copyright Assertion (O5124)
 
 This program is Open-Source under the BSD-3 License.
  

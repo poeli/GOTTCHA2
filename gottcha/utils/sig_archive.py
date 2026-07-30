@@ -670,17 +670,16 @@ def main():
                 
                 # Exit with error code if some files were skipped and user might want to know
                 if skipped and not verbose:
-                    logging.debug(f"Warning: {len(skipped)} file(s) were not found in the archive and were skipped", 
-                          file=sys.stderr)
+                    logging.warning(f"Warning: {len(skipped)} file(s) were not found in the archive and were skipped")
                     
             else:
-                logging.debug("Error: Specify an operation (--list-files, --extract, --concat, or --concat-list)")
+                logging.error("Error: Specify an operation (--list-files, --extract, --concat, or --concat-list)")
                 sys.exit(1)
                 
         # Write operation mode
         else:
             if not args.output:
-                logging.debug("Error: --output is required when creating an archive")
+                logging.error("Error: --output is required when creating an archive")
                 sys.exit(1)
             
             # Collect genome files
@@ -702,8 +701,8 @@ def main():
                 genome_files.extend(list_files)
             
             if not genome_files:
-                logging.debug("Error: No genome files specified")
-                logging.debug("Use --help for usage information")
+                logging.error("Error: No genome files specified")
+                logging.error("Use --help for usage information")
                 sys.exit(1)
             
             # Remove duplicates while preserving order
@@ -724,7 +723,7 @@ def main():
             )
             
     except Exception as e:
-        logging.debug(f"Error: {e}", file=sys.stderr)
+        logging.error(f"Error: {e}")
         import traceback
         if verbose:
             traceback.print_exc()
