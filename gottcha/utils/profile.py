@@ -443,6 +443,8 @@ def parse_args(ver, args):
             args_parsed.sniScore = ','.join([args_parsed.sniScore]*3)
         elif args_parsed.sniScore.count(',') == 1:
             args_parsed.sniScore = args_parsed.sniScore + ',0.99'
+    else:
+        args_parsed.sniScore = '0.9,0.95,0.99'
 
     # If mi/mf/mg are not specified, set them to default values based on whether --nanopore is specified
     # But if --extractOnly is specified, do not set default values for matchIdentity and matchFraction, the value will be load from the log file if not provided
@@ -746,11 +748,14 @@ def main(args):
         if argvs.sniScore is None:
             argvs.sniScore = sni_argv
 
-        if (argvs.matchIdentity is None) and (argvs.matchFraction is None) and (argvs.matchLength is None):
+        if (argvs.matchIdentity is None) and mi and mi >= 0:
             argvs.matchIdentity = mi
+        if (argvs.matchFraction is None) and mf and mf >= 0:
             argvs.matchFraction = mf
+        if (argvs.matchLength is None) and mg and mg >= 0:
             argvs.matchLength = mg
-        else:
+
+        if (argvs.matchIdentity is None) and (argvs.matchFraction is None) and (argvs.matchLength is None):
             logfile_prev = None
             if argvs.matchIdentity is None:
                 argvs.matchIdentity = 0
