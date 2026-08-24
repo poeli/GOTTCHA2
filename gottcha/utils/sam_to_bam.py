@@ -49,11 +49,6 @@ def convert_sam_to_bam(input_sam: str, output_bam: str, threads=4, quiet=False) 
             out.write("@HD\tVN:1.0\tSO:coordinate\n")
             df.apply(convert_to_header, axis=1).to_csv(out, index=False, header=False)
 
-        # open header_file and print the first 2s lines for debugging
-        with open(header_file) as f:
-            header_lines = [next(f) for _ in range(2)]
-            logging.debug(f"Sample of header file:\n{''.join(header_lines)}")
-
         del df  # Free memory
         gc.collect()
 
