@@ -309,7 +309,14 @@ def parse_args(ver, args):
         default=5,
         help='Minimum k-mer size for fast-profile prefiltering. [default: 5]',
     )
-
+    fast_group.add_argument(
+        '--fast-min-ani',
+        metavar='INT',
+        type=int,
+        default=80,
+        help='Minimum ANI for fast-profile prefiltering. [default: 80]',
+    )
+    
     logging_group = p.add_argument_group('Logging')
     logging_group.add_argument(
         '--silent',
@@ -900,6 +907,7 @@ def main(args):
                 subsampling_rate = int(match.group(1))
 
             fast_min_kmer = argvs.fast_min_kmer
+            fast_min_ani = argvs.fast_min_ani
 
             # Run Sylph sketch if the input file is in FASTA format
             if Path(sylph_input[0]).name.endswith(('.fa', '.fasta', '.fa.gz', '.fna', '.fna.gz', '.fasta.gz')):
@@ -931,6 +939,7 @@ def main(args):
                     threads=argvs.threads,
                     subsampling_rate=subsampling_rate,
                     minimum_kmer=fast_min_kmer,
+                    minimum_ani=fast_min_ani,
                     read_seq_id=float(100-argvs.errorRate*100)
                 )
             except (FileNotFoundError, subprocess.CalledProcessError) as e:
