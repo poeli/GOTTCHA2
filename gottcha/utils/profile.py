@@ -751,25 +751,26 @@ def main(args):
         # if match criteria (mi/mf/mg) are not provided, load them from the log file
         if logfile_prev.is_file():
             (mi, mf, mg, sni_argv) = extract_reads.load_criteria_from_log(logfile_prev)
+        else:
+            logfile_prev = None
 
-        if argvs.sniScore is None:
+        if (argvs.sniScore is None) and sni_argv is not None:
             argvs.sniScore = sni_argv
 
         if (argvs.matchIdentity is None) and mi and mi >= 0:
             argvs.matchIdentity = mi
+        else:
+            argvs.matchIdentity = 0
+
         if (argvs.matchFraction is None) and mf and mf >= 0:
             argvs.matchFraction = mf
+        else:
+            argvs.matchFraction = 0
+
         if (argvs.matchLength is None) and mg and mg >= 0:
             argvs.matchLength = mg
-
-        if (argvs.matchIdentity is None) and (argvs.matchFraction is None) and (argvs.matchLength is None):
-            logfile_prev = None
-            if argvs.matchIdentity is None:
-                argvs.matchIdentity = 0
-            if argvs.matchFraction is None:
-                argvs.matchFraction = 0
-            if argvs.matchLength is None:
-                argvs.matchLength = 0
+        else:
+            argvs.matchLength = 0
 
     (sni_score_cutoff, sni_score_species, sni_score_strain) = [float(x) for x in argvs.sniScore.split(',')]
 
