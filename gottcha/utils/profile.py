@@ -537,38 +537,39 @@ def parse_args(ver, args):
         if error_message:
             p.error(error_message)
 
+    if args_parsed.ont_direct and not args_parsed.nanopore:
+        p.error('--ont-direct requires --nanopore.')
+    if args_parsed.ont_ambiguous_tsv and not args_parsed.ont_direct:
+        p.error('--ont-ambiguous-tsv requires --ont-direct.')
+    if args_parsed.ont_direct:
+        if args_parsed.ont_max_secondary < 0:
+            p.error('--ont-max-secondary must be >= 0.')
+        if args_parsed.ont_max_candidates < 1:
+            p.error('--ont-max-candidates must be >= 1.')
+        if not 0 <= args_parsed.ont_secondary_ratio <= 1:
+            p.error('--ont-secondary-ratio must be between 0 and 1.')
+        if not 0 <= args_parsed.ont_min_species_support <= 1:
+            p.error('--ont-min-species-support must be between 0 and 1.')
+        if args_parsed.ont_species_ratio < 1:
+            p.error('--ont-species-ratio must be >= 1.')
+
+    if args_parsed.presetx is None:
+        args_parsed.presetx = 'lr:hq' if (args_parsed.nanopore and args_parsed.ont_direct) else 'sr'
+
+    if args_parsed.m2options == 'auto':
+        if args_parsed.nanopore and args_parsed.ont_direct:
+            # Fast mode builds the signature index on the fly and adds k24/w12
+            # below, so two minimizers are a useful short-fragment safeguard.
+            # Prebuilt GOTTCHA2 .mmi indexes retain k28/w24; allow one seed to
+            # initiate DP for ~100-bp signatures.
+            seed_chain = '-n2' if args_parsed.fast else '-n1'
+            args_parsed.m2options = f'{seed_chain} -m25 -s40 --no-long-join'
+        else:
+            args_parsed.m2options = '-s120'
+
     if args_parsed.noCutoff:
         args_parsed.sniScore = '0,0,0'
 
-        if args_parsed.ont_direct and not args_parsed.nanopore:
-            p.error('--ont-direct requires --nanopore.')
-        if args_parsed.ont_ambiguous_tsv and not args_parsed.ont_direct:
-            p.error('--ont-ambiguous-tsv requires --ont-direct.')
-        if args_parsed.ont_direct:
-            if args_parsed.ont_max_secondary < 0:
-                p.error('--ont-max-secondary must be >= 0.')
-            if args_parsed.ont_max_candidates < 1:
-                p.error('--ont-max-candidates must be >= 1.')
-            if not 0 <= args_parsed.ont_secondary_ratio <= 1:
-                p.error('--ont-secondary-ratio must be between 0 and 1.')
-            if not 0 <= args_parsed.ont_min_species_support <= 1:
-                p.error('--ont-min-species-support must be between 0 and 1.')
-            if args_parsed.ont_species_ratio < 1:
-                p.error('--ont-species-ratio must be >= 1.')
-
-        if args_parsed.presetx is None:
-            args_parsed.presetx = 'lr:hq' if (args_parsed.nanopore and args_parsed.ont_direct) else 'sr'
-
-        if args_parsed.m2options == 'auto':
-            if args_parsed.nanopore and args_parsed.ont_direct:
-                # Fast mode builds the signature index on the fly and adds k24/w12
-                # below, so two minimizers are a useful short-fragment safeguard.
-                # Prebuilt GOTTCHA2 .mmi indexes retain k28/w24; allow one seed to
-                # initiate DP for ~100-bp signatures.
-                seed_chain = '-n2' if args_parsed.fast else '-n1'
-                args_parsed.m2options = f'{seed_chain} -m25 -s40 --no-long-join'
-            else:
-                args_parsed.m2options = '-s120'
     if not args_parsed.errorRate:
         if args_parsed.nanopore:
             args_parsed.errorRate = 0.03
@@ -970,7 +971,6 @@ def main(args):
             sylph_query_tsv = Path(argvs.outdir) / f"{argvs.prefix}.sylph_query.tsv"
             queried_signatures_file = Path(argvs.outdir) / f"{argvs.prefix}.sylph_queried_signatures.txt"
             extracted_reference = Path(argvs.outdir) / f"{argvs.prefix}.sylph_extracted.fa.gz"
-            argvs.m2options += " -w12 -k24" # use smaller k-mer and minimizer length for better sensitivity in the prefiltering query; these values are based on testing and benchmarking, but can be further optimized in the future
             
             # extract subsample (cXXX) rate from sylph_db string, default set to 100
             subsampling_rate = 100
@@ -1062,6 +1062,9 @@ def main(args):
             minimap2_index = str(extracted_reference)
 
         print_message("Running read-mapping...", argvs.silent, begin_t, logfile)
+
+        logging.info(f"Running minimap2 with options: {argvs.m2options}, {argvs.presetx}")
+
         exitcode, cmd, input_read_count, multi_part_index_flag = read_mapping.minimap2(
             argvs.input,
             minimap2_index,
@@ -1169,8 +1172,7 @@ def main(args):
                 min_alen=argvs.matchLength,
                 include_secondary=direct_ont_flag,
                 include_supplementary=direct_ont_flag,
-                split_read_flag=split_read_flag,
-                direct_ont_flag=direct_ont_flag,
+                split_read_flag=split_read_flag
             )
 
             str_df, soi_read_count = aggregate_results.group_refs_to_strains(ref_chunk_results, acc_list, argvs.sigListAction, df_stats)
