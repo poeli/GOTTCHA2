@@ -18,6 +18,7 @@ try:
     import sam_to_bam
     import process_bam
     import ont_utils
+    import ont_direct
     import read_mapping
     import aggregate_results
     import extract_reads
@@ -29,6 +30,7 @@ except ImportError:
     import gottcha.utils.report as report
     import gottcha.utils.taxonomy as taxonomy
     import gottcha.utils.ont_utils as ont_utils
+    import gottcha.utils.ont_direct as ont_direct
     import gottcha.utils.sam_to_bam as sam_to_bam
     import gottcha.utils.process_bam as process_bam
     import gottcha.utils.aggregate_results as aggregate_results
@@ -121,19 +123,58 @@ def parse_args(ver, args):
         ),
     )
     platform_group.add_argument(
+        '--ont-direct',
+        action='store_true',
+        help=(
+            'Map intact ONT reads directly to GOTTCHA2 signature fragments and '
+            'resolve multiple alignments at species level. Without this option, '
+            'the legacy 150-bp chunk workflow is used.'
+        ),
+    )
+    platform_group.add_argument(
+        '--ont-max-secondary', type=int, default=50,
+        help='Maximum minimap2 secondary candidates per primary in --ont-direct mode. [default: 50]',
+    )
+    platform_group.add_argument(
+        '--ont-secondary-ratio', type=float, default=0.5,
+        help='Minimum minimap2 secondary/primary chaining-score ratio (-p) in --ont-direct mode. [default: 0.5]',
+    )
+    platform_group.add_argument(
+        '--ont-max-candidates', type=int, default=100,
+        help='Maximum structural candidate alignments considered per ONT read. [default: 100]',
+    )
+    platform_group.add_argument(
+        '--ont-min-species-support', '--ont-min-taxon-support',
+        dest='ont_min_species_support', type=float, default=0.65,
+        help='Minimum fraction of competing union-bp support required by the winning species. [default: 0.65]',
+    )
+    platform_group.add_argument(
+        '--ont-species-ratio', '--ont-taxon-ratio',
+        dest='ont_species_ratio', type=float, default=1.5,
+        help='Minimum winner/runner-up species union-bp support ratio. [default: 1.5]',
+    )
+    platform_group.add_argument(
+        '--ont-conflict-policy', choices=['drop', 'best'], default='drop',
+        help='How to handle ONT reads without a clear species winner. [default: drop]',
+    )
+    platform_group.add_argument(
+        '--ont-ambiguous-tsv', nargs='?', const='auto', default=None, metavar='TSV',
+        help='Write ambiguous ONT-read species-resolution details to TSV. With no path, use an automatic output name.',
+    )
+    platform_group.add_argument(
         '-xm', '--presetx',
         metavar='STR',
         type=str,
-        default='sr',
-        choices=['sr', 'map-pb', 'map-ont'],
-        help='minimap2 preset passed with -x. [default: sr]',
+        default=None,
+        choices=['sr', 'map-pb', 'map-ont', 'lr:hq'],
+        help='minimap2 preset passed with -x. [default: lr:hq for --nanopore --ont-direct; sr otherwise]',
     )
     platform_group.add_argument(
         '--m2options',
         metavar='STR',
         type=str,
         default='auto',
-        help="Additional minimap2 options. Use with care. [default: auto, resolved to '-s120']",
+        help='Additional minimap2 options. Use with care. [default: platform-specific auto settings]',
     )
     platform_group.add_argument(
         '-er', '--errorRate',
@@ -499,9 +540,35 @@ def parse_args(ver, args):
     if args_parsed.noCutoff:
         args_parsed.sniScore = '0,0,0'
 
-    if args_parsed.m2options == 'auto':
-        args_parsed.m2options = '-s120'
+        if args_parsed.ont_direct and not args_parsed.nanopore:
+            p.error('--ont-direct requires --nanopore.')
+        if args_parsed.ont_ambiguous_tsv and not args_parsed.ont_direct:
+            p.error('--ont-ambiguous-tsv requires --ont-direct.')
+        if args_parsed.ont_direct:
+            if args_parsed.ont_max_secondary < 0:
+                p.error('--ont-max-secondary must be >= 0.')
+            if args_parsed.ont_max_candidates < 1:
+                p.error('--ont-max-candidates must be >= 1.')
+            if not 0 <= args_parsed.ont_secondary_ratio <= 1:
+                p.error('--ont-secondary-ratio must be between 0 and 1.')
+            if not 0 <= args_parsed.ont_min_species_support <= 1:
+                p.error('--ont-min-species-support must be between 0 and 1.')
+            if args_parsed.ont_species_ratio < 1:
+                p.error('--ont-species-ratio must be >= 1.')
 
+        if args_parsed.presetx is None:
+            args_parsed.presetx = 'lr:hq' if (args_parsed.nanopore and args_parsed.ont_direct) else 'sr'
+
+        if args_parsed.m2options == 'auto':
+            if args_parsed.nanopore and args_parsed.ont_direct:
+                # Fast mode builds the signature index on the fly and adds k24/w12
+                # below, so two minimizers are a useful short-fragment safeguard.
+                # Prebuilt GOTTCHA2 .mmi indexes retain k28/w24; allow one seed to
+                # initiate DP for ~100-bp signatures.
+                seed_chain = '-n2' if args_parsed.fast else '-n1'
+                args_parsed.m2options = f'{seed_chain} -m25 -s40 --no-long-join'
+            else:
+                args_parsed.m2options = '-s120'
     if not args_parsed.errorRate:
         if args_parsed.nanopore:
             args_parsed.errorRate = 0.03
@@ -691,13 +758,14 @@ def main(args):
     global acc_list
 
     argvs = parse_args(__version__, args)
+    direct_ont_flag = bool(argvs.nanopore and argvs.ont_direct)
     begin_t  = time.time()
     bamfile  = Path(argvs.bam) if argvs.bam else Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.bam"
     samfile  = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam"
     logfile  = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.log"
     set_start_method("fork") # for default multiprocessing method
     acc_list = set()
-    split_read_flag = False
+    split_read_flag = direct_ont_flag
     multi_part_index_flag = False
     res_df = pd.DataFrame() # aggregated restuls
     logfile_prev = ""
@@ -889,8 +957,11 @@ def main(args):
         # if nanopore option is on, preprocessing reads
         if argvs.nanopore:
             print_message("Checking nanopore read files...", argvs.silent, begin_t, logfile)
-            argvs.input = ont_utils.preprocess_nanopore_reads(argvs.input, argvs.outdir, argvs.prefix, argvs.silent)
-            split_read_flag = True
+            if direct_ont_flag:
+                print_message(" - Direct ONT mode: mapping intact reads", argvs.silent, begin_t, logfile)
+            else:
+                argvs.input = ont_utils.preprocess_nanopore_reads(argvs.input, argvs.outdir, argvs.prefix, argvs.silent)
+                split_read_flag = True
 
         if argvs.fast:
             print_message("Prefiltering reference genomes...", argvs.silent, begin_t, logfile)
@@ -991,7 +1062,18 @@ def main(args):
             minimap2_index = str(extracted_reference)
 
         print_message("Running read-mapping...", argvs.silent, begin_t, logfile)
-        exitcode, cmd, input_read_count, multi_part_index_flag = read_mapping.minimap2(argvs.input, minimap2_index, argvs.threads, argvs.m2options, argvs.presetx, samfile, logfile)
+        exitcode, cmd, input_read_count, multi_part_index_flag = read_mapping.minimap2(
+            argvs.input,
+            minimap2_index,
+            argvs.threads,
+            argvs.m2options,
+            argvs.presetx,
+            samfile,
+            logfile,
+            allow_secondary=direct_ont_flag,
+            max_secondary=argvs.ont_max_secondary,
+            secondary_ratio=argvs.ont_secondary_ratio,
+        )
         logging.info(f"COMMAND: {cmd}")
 
         if exitcode != 0:
@@ -1004,7 +1086,7 @@ def main(args):
         gc.collect()
 
     # remove multiple hits
-    if multi_part_index_flag:
+    if multi_part_index_flag and not direct_ont_flag:
         # remove multiple hits from the SAM file
         print_message("Removing multiple hits from SAM file...", argvs.silent, begin_t, logfile)
         samfile_temp = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
@@ -1020,8 +1102,39 @@ def main(args):
         gc.collect()
 
     # preprocess SAM file for nanopore reads
-    if argvs.nanopore and Path(samfile).is_file():
-        # remove inconsistent read chunks from the SAM file
+    if direct_ont_flag and Path(samfile).is_file():
+        print_message("Resolving direct ONT alignments by species...", argvs.silent, begin_t, logfile)
+        samfile_temp = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
+        ambiguous_tsv = None
+        if argvs.ont_ambiguous_tsv:
+            if argvs.ont_ambiguous_tsv == 'auto':
+                ambiguous_tsv = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.ont_ambiguous.tsv"
+            else:
+                ambiguous_tsv = Path(argvs.ont_ambiguous_tsv)
+        ont_cfg = ont_direct.OntDirectConfig(
+            min_species_support=argvs.ont_min_species_support,
+            species_support_ratio=argvs.ont_species_ratio,
+            conflict_policy=argvs.ont_conflict_policy,
+            max_candidates_per_read=argvs.ont_max_candidates,
+        )
+        ont_stats = ont_direct.resolve_sam(
+            samfile,
+            samfile_temp,
+            config=ont_cfg,
+            ambiguous_tsv=ambiguous_tsv,
+        )
+        samfile_temp.replace(samfile)
+        print_message(f" - {ont_stats.reads_with_candidates:,} ONT reads with candidate alignments", argvs.silent, begin_t, logfile)
+        print_message(f" - {ont_stats.kept_reads:,} reads assigned to a winner species", argvs.silent, begin_t, logfile)
+        print_message(f" - {ont_stats.ambiguous_reads:,} ambiguous reads", argvs.silent, begin_t, logfile)
+        print_message(f" - {ont_stats.kept_alignments:,} winner-species alignments retained", argvs.silent, begin_t, logfile)
+        if ambiguous_tsv:
+            print_message(f" - Ambiguous ONT reads: {ambiguous_tsv}", argvs.silent, begin_t, logfile)
+        if ont_stats.kept_alignments == 0:
+            print_message("No direct ONT alignments remained after species resolution. Stopping.", argvs.silent, begin_t, logfile)
+            sys.exit(0)
+        gc.collect()
+    elif argvs.nanopore and Path(samfile).is_file():
         print_message("Removing inconsistent read chunks from SAM file...", argvs.silent, begin_t, logfile)
         samfile_temp = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
         tol_chunks_count, tol_chunks_qualified = ont_utils.split_reads_samfile_postprocessing(samfile, samfile_temp)
@@ -1048,12 +1161,17 @@ def main(args):
 
         if Path(bamfile).exists() and Path(f"{bamfile}.bai").exists():
             print_message("Processing alignments...", argvs.silent, begin_t, logfile)
-            ref_chunk_results = process_bam.parse_aln_from_bam(bam_path=bamfile,
-                                                               processes=argvs.threads,
-                                                               min_frac=argvs.matchFraction,
-                                                               min_idt=argvs.matchIdentity,
-                                                               min_alen=argvs.matchLength,
-                                                               split_read_flag=split_read_flag)
+            ref_chunk_results = process_bam.parse_aln_from_bam(
+                bam_path=bamfile,
+                processes=argvs.threads,
+                min_frac=argvs.matchFraction,
+                min_idt=argvs.matchIdentity,
+                min_alen=argvs.matchLength,
+                include_secondary=direct_ont_flag,
+                include_supplementary=direct_ont_flag,
+                split_read_flag=split_read_flag,
+                direct_ont_flag=direct_ont_flag,
+            )
 
             str_df, soi_read_count = aggregate_results.group_refs_to_strains(ref_chunk_results, acc_list, argvs.sigListAction, df_stats)
 
