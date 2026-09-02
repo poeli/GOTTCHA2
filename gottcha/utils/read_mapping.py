@@ -41,6 +41,8 @@ def minimap2(
             f"-N{max(0, int(max_secondary))}",
             "--secondary=yes",
             f"-p{float(secondary_ratio):g}",
+            "-k31",
+            "-w24"
         ])
     else:
         opts.extend(["-N20", "--secondary=no"])
