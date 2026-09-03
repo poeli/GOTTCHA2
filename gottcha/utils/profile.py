@@ -1130,13 +1130,13 @@ def main(args):
 
             str_df, soi_read_count = aggregate_results.group_refs_to_strains(ref_chunk_results, acc_list, argvs.sigListAction, df_stats)
 
-            tol_alignment_count = str_df['READ_COUNT'].sum()
+            tol_read_count = str_df['READ_COUNT'].sum()
             tol_invalid_match_count = str_df['INVALID_ALNS'].sum()
 
             print_message(f" - {tol_invalid_match_count:,} alignments did not meet matching criteria", argvs.silent, begin_t, logfile)
-            print_message(f" - {tol_alignment_count:,} qualified alignments processed", argvs.silent, begin_t, logfile)
+            print_message(f" - {tol_read_count:,} qualified reads processed", argvs.silent, begin_t, logfile)
 
-            if not tol_alignment_count:
+            if not tol_read_count:
                 print_message("No qualified alignments found. Stopping.", argvs.silent, begin_t, logfile)
                 sys.exit(0)
 
@@ -1156,9 +1156,9 @@ def main(args):
 
             if acc_list:
                 print_message(f" - {soi_read_count:,} reads mapped to accession-of-interest", argvs.silent, begin_t, logfile)
-                read_count_after_soi = tol_alignment_count
+                read_count_after_soi = tol_read_count
                 if argvs.sigListAction == 'filter_out':
-                    read_count_after_soi = tol_alignment_count - soi_read_count
+                    read_count_after_soi = tol_read_count - soi_read_count
                 elif argvs.sigListAction == 'filter_in':
                     read_count_after_soi = soi_read_count
                 print_message(f" - {read_count_after_soi:,} reads after applying accession-of-interest action ({argvs.sigListAction})", argvs.silent, begin_t, logfile)
