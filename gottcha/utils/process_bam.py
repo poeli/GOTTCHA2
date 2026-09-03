@@ -34,7 +34,6 @@ Output columns (TSV):
 from __future__ import annotations
 
 import argparse
-import gc
 import multiprocessing as mp
 import os
 import sys
@@ -155,7 +154,10 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
                 if aln.has_tag('ZC'):
                     numreads += 1
             else:
-                numreads += 1
+                if aln.is_secondary or aln.is_supplementary:
+                    continue
+                else:
+                    numreads += 1
             
             # count total read length (including softclips) for mean depth calculation
             readlength += aln.query_length
@@ -292,6 +294,7 @@ def parse_aln_from_bam(bam_path: str,
         return 2
 
     logging.debug(f"Parsing {len(references)} references with {processes} processes...")
+    logging.debug(f"Parameters: min_mapq={min_mapq}, min_frac={min_frac}, min_idt={min_idt}, min_alen={min_alen}, include_secondary={include_secondary}, include_supplementary={include_supplementary}, include_duplicates={include_duplicates}, include_qcfail={include_qcfail}, split_read_flag={split_read_flag}")
 
     tasks = _iter_tasks(references, lengths, chunk_size)
 

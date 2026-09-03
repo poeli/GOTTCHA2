@@ -46,7 +46,7 @@ def minimap2(
         opts.extend(["-N20", "--secondary=no"])
 
     mm2_cmd = f"minimap2 {' '.join(opts)} -t{threads} {db} {input_file}"
-    filter_cmd = "sed '/^@/d'"
+    filter_cmd = ['samtools', 'view', '-x', 'SA']
 
     with samfile.open("w", encoding="utf-8") as out_f:
         mm2 = subprocess.Popen(
@@ -57,9 +57,8 @@ def minimap2(
             text=True,
             bufsize=1,
         )
-        sed = subprocess.Popen(
+        filter = subprocess.Popen(
             filter_cmd,
-            shell=True,
             stdin=mm2.stdout,
             stdout=out_f,
             stderr=subprocess.PIPE,
@@ -79,9 +78,9 @@ def minimap2(
                 f.write(line)
 
         mm2.stderr.close()
-        sed.stderr.close()
+        filter.stderr.close()
         rc_mm = mm2.wait()
-        sed.wait()
+        filter.wait()
 
     return rc_mm, mm2_cmd, input_read_count, multi_part_index_flag
 

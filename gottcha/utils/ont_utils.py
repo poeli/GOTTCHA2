@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import argparse
 import gzip
+import itertools
+import numpy as np
 import sys
 import pandas as pd
 import os
 import logging
 from types import SimpleNamespace
+import taxonomy
 
 def open_in(path: str):
     if path == "-":
@@ -174,6 +177,78 @@ def preprocess_nanopore_reads(reads, outdir, prefix, silent):
 
     return [output_path]
 
+
+def direct_ont_reads_samfile_postprocessing(
+        samfile,
+        samfile_temp,
+        ont_min_species_ratio):
+
+    logging.info("Reading direct ONT alignments from the SAM file...")
+
+    df = pd.read_csv(
+        samfile,
+        sep="\t",
+        header=None,
+        usecols=[0, 2, 5],
+        names=["QNAME", "REF", "CIGAR"],
+        dtype=str,
+        low_memory=False
+    )
+
+    # Calculate aligned (=) length
+    nums = df["CIGAR"].str.extractall(r'(\d+)=')[0].astype(np.int32)
+
+    df["LEN"] = (
+        nums.groupby(level=0, sort=False)
+        .sum()
+        .reindex(df.index, fill_value=0)
+        .astype(np.int32)
+    )
+
+    # Convert reference taxid -> species taxid
+    taxids = df["REF"].str.rsplit("|", n=2).str[-2]
+    taxid_to_species = {
+        taxid: taxonomy.taxid2taxidOnRank(taxid, target_rank="species") for taxid in taxids.unique()
+    }
+
+    df["SPECIES"] = taxids.map(taxid_to_species)
+
+    logging.info("Determining qualified species for each ONT read...")
+
+    # Total aligned length for each species within each read
+    species_len = (
+        df.groupby(["QNAME", "SPECIES"], sort=False, dropna=False)["LEN"].transform("sum").to_numpy()
+    )
+
+    # Total aligned length across all species for each read
+    read_len = (
+        df.groupby("QNAME", sort=False)["LEN"].transform("sum").to_numpy()
+    )
+
+    # Keep every alignment belonging to a species satisfying:
+    #        species_LEN / total_read_LEN > ont_min_species_ratio
+    qualified_mask = (
+        species_len >= read_len * ont_min_species_ratio
+    )
+
+    n_qualified = int(qualified_mask.sum())
+    n_total = len(qualified_mask)
+
+    logging.info(
+        f"Qualified {n_qualified:,} / {n_total:,} alignments "
+        f"({n_qualified / n_total:.2%})"
+        if n_total else
+        "No alignments found."
+    )
+
+    logging.info("Writing qualified hits...")
+
+    with open(samfile, "r") as fin, open(samfile_temp, "w") as fout:
+        fout.writelines(itertools.compress(fin, qualified_mask))
+
+    logging.info(f"Done writing {n_qualified:,} qualified alignments.")
+
+    return n_total, n_qualified
 
 def split_reads_samfile_postprocessing(samfile, samfile_temp):
     """
