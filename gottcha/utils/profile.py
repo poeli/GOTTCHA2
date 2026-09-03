@@ -877,7 +877,7 @@ def main(args):
             custom_taxa_tsv = Path(argvs.database + ".taxa")
 
         taxonomy.loadTaxonomy(cus_taxonomy_file=custom_taxa_tsv, auto_download=False)
-        print_message(f" - {len(taxonomy.taxNames)} taxa loaded.", argvs.silent, begin_t, logfile)
+        print_message(f" - {len(taxonomy.taxNames):,} taxa loaded.", argvs.silent, begin_t, logfile)
 
         #load database stats
         print_message("Loading database stats...", argvs.silent, begin_t, logfile)
