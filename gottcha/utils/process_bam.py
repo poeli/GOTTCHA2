@@ -155,7 +155,7 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
                     numreads += 1
             else:
                 if aln.is_secondary or aln.is_supplementary:
-                    continue
+                    pass
                 else:
                     numreads += 1
             
