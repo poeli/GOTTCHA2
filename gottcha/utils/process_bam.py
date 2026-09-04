@@ -130,12 +130,6 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
         if aln.mapping_quality < min_mapq:
             continue
 
-        if aln.query_length is None or aln.query_length <= 0:
-            #print aln info for debugging
-            logging.error(f"Skipping read with invalid query_length: {aln.query_name}, query_length={aln.query_length}, reference_start={aln.reference_start}, reference_end={aln.reference_end}, flag={aln.flag}")
-            sys.stderr.flush()
-            sys.exit(1)
-
         # Note: aln.reference_start is 0-based leftmost coordinate of the alignment on the reference.
         # Only count reads that have their aligned portion starting within the chunk towards numreads, to avoid double-counting reads that span multiple chunks.
         if aln.reference_start >= start0:
@@ -147,7 +141,13 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
                     continue
 
             if min_frac > 0.0:
-                if (aln.alen / aln.query_length) < min_frac and (aln.alen / bam.get_reference_length(rname)) < min_frac:
+                if aln.query_length <= 0:
+                    #for hard clips, query_length can be 0, recover it from CIGAR
+                    query_length = sum(length for op, length in aln.cigartuples if op in (0, 1, 4, 5, 7, 8)) # M/I/S/H/=/X
+                else:
+                    query_length = aln.query_length
+
+                if (aln.alen / query_length) < min_frac and (aln.alen / bam.get_reference_length(rname)) < min_frac:
                     invalid_alns += 1
                     continue
 
@@ -166,7 +166,7 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
                     numreads += 1
             
             # count total read length (including softclips) for mean depth calculation
-            readlength += aln.query_length
+            readlength += aln.alen
 
         cig = aln.cigartuples
         if not cig:

@@ -199,7 +199,17 @@ def direct_ont_reads_samfile_postprocessing(
     # Calculate aligned (=) length
     nums = df["CIGAR"].str.extractall(r'(\d+)=')[0].astype(int)
     df["LEN"] = nums.groupby(level=0).sum()
-    df['SPECIES'] = df['REF'].str.split('|').str[-2].apply(lambda x: t.taxid2taxidOnRank(x, target_rank='species'))
+
+    taxids = df["REF"].str.rsplit("|", n=2).str[-2]
+    taxid_to_species = {
+        taxid: t.taxid2taxidOnRank(
+            taxid,
+            target_rank="species"
+        )
+        for taxid in taxids.unique()
+    }
+
+    df["SPECIES"] = taxids.map(taxid_to_species)
 
     logging.debug(f"{df['SPECIES'].nunique()} unique species taxids found in the SAM file.")
     logging.debug(f"Example species taxid mapping: {df[['REF', 'SPECIES']].drop_duplicates().head()}")
