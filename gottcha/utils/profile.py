@@ -519,7 +519,7 @@ def parse_args(ver, args):
         if error_message:
             p.error(error_message)
 
-    if not args_parsed.ont_chunk and not args_parsed.nanopore:
+    if args_parsed.ont_chunk and not args_parsed.nanopore:
         p.error('--ont-chunk requires --nanopore.')
     if args_parsed.nanopore and not args_parsed.ont_chunk:
         if args_parsed.ont_max_secondary < 0:
