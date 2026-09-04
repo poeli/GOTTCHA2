@@ -7,7 +7,11 @@ import sys
 import pandas as pd
 import os
 import logging
-from . import taxonomy as t
+
+try:
+    from . import taxonomy as t
+except ImportError:
+    import gottcha.utils.taxonomy as t
 
 def open_in(path: str):
     if path == "-":
@@ -186,17 +190,16 @@ def direct_ont_reads_samfile_postprocessing(
         samfile,
         sep="\t",
         header=None,
-        usecols=[0, 2, 5],
-        names=["QNAME", "REF", "CIGAR"],
-        dtype=str,
-        low_memory=False
+        usecols=[0, 2, 13],
+        names=["QNAME", "REF", "AS"],
+        converters={
+            'AS': lambda x: x.replace('AS:i:', '')
+        }
     )
 
-    logging.info(f"{len(df):,} alignments loaded from the SAM file.")
+    df[['AS']] = df[['AS']].astype('int16')
 
-    # Calculate aligned (=) length
-    nums = df["CIGAR"].str.extractall(r'(\d+)=')[0].astype(int)
-    df["LEN"] = nums.groupby(level=0).sum()
+    logging.info(f"{len(df):,} alignments loaded from the SAM file.")
 
     taxids = df["REF"].str.rsplit("|", n=2).str[-2]
     taxid_to_species = {
@@ -210,22 +213,21 @@ def direct_ont_reads_samfile_postprocessing(
     df["SPECIES"] = taxids.map(taxid_to_species)
 
     logging.info(f"{df['SPECIES'].nunique():,} unique species taxids found in the SAM file.")
-    logging.debug(f"Example species taxid mapping: {df[['REF', 'SPECIES']].drop_duplicates().head()}")
 
     # Total aligned length for each species within each read
-    species_len = (
-        df.groupby(["QNAME", "SPECIES"], sort=False, dropna=False)["LEN"].transform("sum").to_numpy()
+    species_as = (
+        df.groupby(["QNAME", "SPECIES"], sort=False, dropna=False)["AS"].transform("sum").to_numpy()
     )
 
     # Total aligned length across all species for each read
-    read_len = (
-        df.groupby("QNAME", sort=False)["LEN"].transform("sum").to_numpy()
+    read_as = (
+        df.groupby("QNAME", sort=False)["AS"].transform("sum").to_numpy()
     )
 
     # Keep every alignment belonging to a species satisfying:
-    #        species_LEN / total_read_LEN > ont_min_species_ratio
+    #        species_AS / total_read_AS > ont_min_species_ratio
     qualified_mask = (
-        species_len >= read_len * ont_min_species_ratio
+        species_as >= read_as * ont_min_species_ratio
     )
 
     n_qualified = int(qualified_mask.sum())
@@ -315,6 +317,7 @@ def main():
     ap = argparse.ArgumentParser(description="Parse and filter SAM file for ONT reads based on species support.")
     ap.add_argument("-s", "--samfile", required=True, help="Input SAM file")
     ap.add_argument("-o", "--out-temp", required=True, help="Output temporary SAM file for qualified hits")
+    ap.add_argument("-c", "--custom-tsv", required=True, help="Custom taxonomy TSV file")
     ap.add_argument("--ont-min-species-support", type=float, default=0.6, help="Minimum species support for ONT reads, default 0.6")
     args = ap.parse_args()
 
@@ -327,6 +330,8 @@ def main():
         format='[%(asctime)s] [%(levelname)s] [%(module)s] %(message)s',
         datefmt='%Y%m%d %H:%M:%S',
     )
+
+    t.loadTaxonomy(cus_taxonomy_file=args.custom_tsv)
 
     tol_alignment_cnt, tol_q_alignment_cnt = direct_ont_reads_samfile_postprocessing(samfile, samfile_temp, ont_min_species_support)
 
