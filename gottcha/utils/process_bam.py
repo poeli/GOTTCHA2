@@ -130,6 +130,12 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
         if aln.mapping_quality < min_mapq:
             continue
 
+        if aln.query_length is None or aln.query_length <= 0:
+            #print aln info for debugging
+            logging.error(f"Skipping read with invalid query_length: {aln.query_name}, query_length={aln.query_length}, reference_start={aln.reference_start}, reference_end={aln.reference_end}, flag={aln.flag}")
+            sys.stderr.flush()
+            sys.exit(1)
+
         # Note: aln.reference_start is 0-based leftmost coordinate of the alignment on the reference.
         # Only count reads that have their aligned portion starting within the chunk towards numreads, to avoid double-counting reads that span multiple chunks.
         if aln.reference_start >= start0:
