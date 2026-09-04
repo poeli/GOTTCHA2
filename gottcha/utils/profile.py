@@ -935,8 +935,9 @@ def main(args):
         if argvs.nanopore:
             print_message("Checking nanopore read files...", argvs.silent, begin_t, logfile)
             if direct_ont_flag:
-                print_message(" - Direct ONT mode: mapping intact reads", argvs.silent, begin_t, logfile)
+                print_message(" - ONT mode: direct mapping intact reads", argvs.silent, begin_t, logfile)
             else:
+                print_message(" - ONT mode: splitting reads to chunks", argvs.silent, begin_t, logfile)
                 argvs.input = ont_utils.preprocess_nanopore_reads(argvs.input, argvs.outdir, argvs.prefix, argvs.silent)
                 split_read_flag = True
 

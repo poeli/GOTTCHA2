@@ -234,7 +234,7 @@ def direct_ont_reads_samfile_postprocessing(
     n_total = len(qualified_mask)
 
     logging.info(
-        f"{n_qualified:,} / {n_total:,} qualified alignments ({n_qualified / n_total:.2%}) processed."
+        f"{n_qualified:,} / {n_total:,} ({n_qualified / n_total:.2%}) main-species alignments processed."
         if n_total else
         "No alignments found."
     )
@@ -244,7 +244,7 @@ def direct_ont_reads_samfile_postprocessing(
     with open(samfile, "r") as fin, open(samfile_temp, "w") as fout:
         fout.writelines(itertools.compress(fin, qualified_mask))
 
-    logging.info(f"Done writing {n_qualified:,} qualified alignments.")
+    logging.info(f"Done writing {n_qualified:,} main-species alignments.")
 
     return n_total, n_qualified
 
