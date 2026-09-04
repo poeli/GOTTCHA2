@@ -7,8 +7,7 @@ import sys
 import pandas as pd
 import os
 import logging
-from types import SimpleNamespace
-import taxonomy
+from . import taxonomy
 
 def open_in(path: str):
     if path == "-":
@@ -195,15 +194,11 @@ def direct_ont_reads_samfile_postprocessing(
         low_memory=False
     )
 
-    # Calculate aligned (=) length
-    nums = df["CIGAR"].str.extractall(r'(\d+)=')[0].astype(np.int32)
+    logging.debug(f"Loaded {len(df)} alignments from the SAM file.")
 
-    df["LEN"] = (
-        nums.groupby(level=0, sort=False)
-        .sum()
-        .reindex(df.index, fill_value=0)
-        .astype(np.int32)
-    )
+    # Calculate aligned (=) length
+    nums = df["CIGAR"].str.extractall(r'(\d+)=')[0].astype(int)
+    df["LEN"] = nums.groupby(level=0).sum()
 
     # Convert reference taxid -> species taxid
     taxids = df["REF"].str.rsplit("|", n=2).str[-2]
@@ -213,6 +208,8 @@ def direct_ont_reads_samfile_postprocessing(
 
     df["SPECIES"] = taxids.map(taxid_to_species)
 
+    logging.debug(f"{len(taxid_to_species)} unique species taxids found in the SAM file.")
+    logging.debug(f"Example species taxid mapping: {list(taxid_to_species.items())[:5]}")
     logging.info("Determining qualified species for each ONT read...")
 
     # Total aligned length for each species within each read
@@ -235,8 +232,7 @@ def direct_ont_reads_samfile_postprocessing(
     n_total = len(qualified_mask)
 
     logging.info(
-        f"Qualified {n_qualified:,} / {n_total:,} alignments "
-        f"({n_qualified / n_total:.2%})"
+        f"Qualified {n_qualified:,} / {n_total:,} alignments ({n_qualified / n_total:.2%})"
         if n_total else
         "No alignments found."
     )

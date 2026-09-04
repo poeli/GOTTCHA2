@@ -121,12 +121,11 @@ def parse_args(ver, args):
         ),
     )
     platform_group.add_argument(
-        '--ont-direct',
+        '--ont-chunk',
         action='store_true',
         help=(
-            'Map intact ONT reads directly to GOTTCHA2 signature fragments and '
-            'resolve multiple alignments at species level. Without this option, '
-            'the legacy 150-bp chunk workflow is used.'
+            'Split ONT reads to 150-bp chunks and map them to GOTTCHA2 signature fragments.\n'
+            'If not specified, the default direct mapping workflow is used.'
         ),
     )
     platform_group.add_argument(
@@ -139,7 +138,7 @@ def parse_args(ver, args):
     )
     platform_group.add_argument(
         '--ont-min-species-support',
-        dest='ont_min_species_support', type=float, default=0.65,
+        dest='ont_min_species_support', type=float, default=0.6,
         help='Minimum fraction of competing union-bp support required by the winning species. [default: 0.65]',
     )
     platform_group.add_argument(
@@ -489,8 +488,10 @@ def parse_args(ver, args):
 
     if args_parsed.matchFraction is None:
         if not args_parsed.extractOnly:
-            if args_parsed.nanopore:
+            if args_parsed.ont_chunk:
                 args_parsed.matchFraction = 0.85
+            elif args_parsed.nanopore:
+                args_parsed.matchFraction = 0.05
             else:
                 args_parsed.matchFraction = 0.95
     else:
@@ -518,23 +519,21 @@ def parse_args(ver, args):
         if error_message:
             p.error(error_message)
 
-    if args_parsed.ont_direct and not args_parsed.nanopore:
-        p.error('--ont-direct requires --nanopore.')
-    if args_parsed.ont_direct:
+    if not args_parsed.ont_chunk and not args_parsed.nanopore:
+        p.error('--ont-chunk requires --nanopore.')
+    if args_parsed.nanopore and not args_parsed.ont_chunk:
         if args_parsed.ont_max_secondary < 0:
             p.error('--ont-max-secondary must be >= 0.')
         if not 0 <= args_parsed.ont_secondary_ratio <= 1:
             p.error('--ont-secondary-ratio must be between 0 and 1.')
         if not 0 <= args_parsed.ont_min_species_support <= 1:
             p.error('--ont-min-species-support must be between 0 and 1.')
-        if not args_parsed.matchFraction:
-            args_parsed.matchFraction = 0
 
     if args_parsed.presetx is None:
-        args_parsed.presetx = 'lr:hq' if (args_parsed.nanopore and args_parsed.ont_direct) else 'sr'
+        args_parsed.presetx = 'lr:hq' if (args_parsed.nanopore and not args_parsed.ont_chunk) else 'sr'
 
     if args_parsed.m2options == 'auto':
-        if args_parsed.nanopore and args_parsed.ont_direct:
+        if args_parsed.nanopore and not args_parsed.ont_chunk:
             # Fast mode builds the signature index on the fly and adds k24/w12
             # below, so two minimizers are a useful short-fragment safeguard.
             # Prebuilt GOTTCHA2 .mmi indexes retain k28/w24; allow one seed to
@@ -736,7 +735,7 @@ def main(args):
     global acc_list
 
     argvs = parse_args(__version__, args)
-    direct_ont_flag = bool(argvs.nanopore and argvs.ont_direct)
+    direct_ont_flag = bool(argvs.nanopore and not argvs.ont_chunk)
     begin_t  = time.time()
     bamfile  = Path(argvs.bam) if argvs.bam else Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.bam"
     samfile  = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam"
