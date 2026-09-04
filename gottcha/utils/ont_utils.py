@@ -182,8 +182,6 @@ def direct_ont_reads_samfile_postprocessing(
         samfile_temp,
         ont_min_species_ratio):
 
-    logging.info("Reading direct ONT alignments from the SAM file...")
-
     df = pd.read_csv(
         samfile,
         sep="\t",
@@ -194,7 +192,7 @@ def direct_ont_reads_samfile_postprocessing(
         low_memory=False
     )
 
-    logging.debug(f"Loaded {len(df)} alignments from the SAM file.")
+    logging.info(f"{len(df):,} alignments loaded from the SAM file.")
 
     # Calculate aligned (=) length
     nums = df["CIGAR"].str.extractall(r'(\d+)=')[0].astype(int)
@@ -211,9 +209,8 @@ def direct_ont_reads_samfile_postprocessing(
 
     df["SPECIES"] = taxids.map(taxid_to_species)
 
-    logging.debug(f"{df['SPECIES'].nunique()} unique species taxids found in the SAM file.")
+    logging.info(f"{df['SPECIES'].nunique():,} unique species taxids found in the SAM file.")
     logging.debug(f"Example species taxid mapping: {df[['REF', 'SPECIES']].drop_duplicates().head()}")
-    logging.info("Determining qualified species for each ONT read...")
 
     # Total aligned length for each species within each read
     species_len = (
@@ -235,7 +232,7 @@ def direct_ont_reads_samfile_postprocessing(
     n_total = len(qualified_mask)
 
     logging.info(
-        f"Qualified {n_qualified:,} / {n_total:,} alignments ({n_qualified / n_total:.2%})"
+        f"{n_qualified:,} / {n_total:,} qualified alignments ({n_qualified / n_total:.2%}) processed."
         if n_total else
         "No alignments found."
     )
