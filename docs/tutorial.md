@@ -29,8 +29,10 @@ GOTTCHA2 is a gene-independent, signature-based metagenomic taxonomic profiler f
 
 ## What's new
 
-Recent GOTTCHA2 releases through v2.4.0 include several workflow changes that are worth knowing before you start:
+The current development version is v2.5.0. It includes several workflow changes that are worth knowing before you start:
 
+- **Direct Oxford Nanopore profiling**: `-np/--nanopore` now maps intact ONT reads by default and resolves competing alignments at the species level. The earlier 150 bp chunk workflow remains available with `--ont-chunk`.
+- **ONT mapping controls**: direct mode exposes the maximum number of secondary candidates, their minimum score ratio, and the minimum species support through `--ont-max-secondary`, `--ont-secondary-ratio`, and `--ont-min-species-support`.
 - **Fast prefiltering mode**: `fast-profile` uses `sylph` to prefilter the reference set before read mapping while producing results comparable to the standard `profile` workflow. Depending on the sample and database, it often reduces runtime by about 5–10× and memory usage by roughly 2–10×.
 - **Current CLI**: the supported entry points are `profile`, `fast-profile`, `extract`, `sam2bam`, `download`, and `version`.
 - **Updated identity handling**: the reported `SNI_SCORE` is based on consensus identity rather than the legacy read-weighted identity metric.
@@ -80,7 +82,7 @@ GOTTCHA2 requires Python 3.9+.
 
 Runtime dependencies:
 
-- `minimap2` for mapping
+- `minimap2` 2.27 or newer for mapping
 - `samtools` and `pysam` for BAM conversion and parsing
 - `numpy` and `pandas`
 - `requests`
@@ -112,10 +114,12 @@ A standard profiling database should include these files with the same prefix:
 - `gottcha_db.<level>.fna.tax.tsv` taxonomy mapping
 - `gottcha_db.<level>.fna.stats` signature and genome statistics
 
-Additional files used by fast mode:
+Fast mode uses the shared `.tax.tsv` and `.stats` files above together with:
 
 - `gottcha_db.<level>.fna.syldb` `sylph` database for prefiltering
 - `gottcha_db.<level>.fna.zip` archived signature sequences used to build the reduced reference
+
+The `.mmi` index is required by `profile` but is not used by `fast-profile`.
 
 Pass either the shared database prefix or the database directory to `-d/--database`. GOTTCHA2 locates the required sidecar files from that path. For example:
 
@@ -131,11 +135,19 @@ or
 
 ### Download helper
 
-[Not available yet] Use the built-in downloader to fetch the default database tarball into a new `database/` directory:
+Use the built-in downloader to fetch and verify a database tarball, then extract it into a new `database/` directory. Fast mode is the default download:
 
 ```bash
 gottcha2 download
 ```
+
+Download the larger standard database instead with:
+
+```bash
+gottcha2 download -d standard
+```
+
+The downloader stops if a `database/` directory already exists in the current working directory. It verifies the archive against the published SHA-256 checksum before extraction.
 
 See available options with:
 
@@ -152,11 +164,13 @@ These examples use the most common workflows. Replace the example paths and file
 ### Example conventions
 
 - `gottcha2 profile` maps reads to the selected signature database and produces taxonomic reports.
-- `gottcha2 fast-profile` first narrow the reference set, then runs the profiling workflow on the reduced reference.
+- `gottcha2 fast-profile` first narrows the reference set, then runs the profiling workflow on the reduced reference.
 - `gottcha2 extract` pulls reads assigned to selected taxa from an existing GOTTCHA2 BAM file.
 - `-d/--database` points to either a database prefix, such as `/path/to/db/gottcha_db.species.fna`, or to a directory that contains the matching database files.
 - `-i/--input` supplies one or more read files. Use two files for paired-end Illumina reads and one file for single-end or Nanopore reads.
 - `-b/--bam` reuses an existing sorted and indexed BAM instead of remapping reads.
+- `-np/--nanopore` enables ONT mode and maps intact long reads by default.
+- `--ont-chunk`, used together with `-np`, selects the earlier 150 bp chunk workflow.
 - `-t/--threads` controls the number of CPU threads used by mapping and related processing steps.
 - `-o/--outdir` chooses the output directory. GOTTCHA2 creates it if needed.
 - `-p/--prefix` sets the output filename prefix. If you omit it, GOTTCHA2 derives a prefix from the input filename or BAM name.
@@ -201,19 +215,31 @@ Because `-p/--prefix` is omitted, GOTTCHA2 derives the output prefix from `sampl
 
 ### 3) Profile Oxford Nanopore reads
 
-Nanopore mode expects exactly one input file. Add `--nanopore` so GOTTCHA2 uses long-read preprocessing and Nanopore-oriented default thresholds.
+Nanopore mode expects exactly one input file. Add `-np` (short for `--nanopore`) so GOTTCHA2 maps the intact long reads with ONT-oriented settings.
 
 ```bash
 gottcha2 profile \
   -d /path/to/db/gottcha_db.species.fna \
   -i ont_reads.fastq.gz \
-  --nanopore \
+  -np \
   -t 8 \
   -o out \
   -p ont_sample
 ```
 
-The important difference from short-read mode is `--nanopore`. In this mode, GOTTCHA2 chunks long reads before mapping and uses more permissive default alignment and error-rate settings. See [Oxford Nanopore mode](#oxford-nanopore-mode) for details.
+By default, `-np` uses direct ONT mode: it maps intact reads, retains competing candidate alignments, and keeps alignments supported by a consistent species assignment for each read. To use the earlier chunk-based workflow instead, add `--ont-chunk`:
+
+```bash
+gottcha2 profile \
+  -d /path/to/db/gottcha_db.species.fna \
+  -i ont_reads.fastq.gz \
+  -np --ont-chunk \
+  -t 8 \
+  -o out \
+  -p ont_sample.chunk
+```
+
+See [Oxford Nanopore mode](#oxford-nanopore-mode) for the different defaults and tuning options.
 
 ### 4) Re-run profiling from an existing BAM
 
@@ -254,7 +280,7 @@ gottcha2 fast-profile \
   -p sample.fast
 ```
 
-This command requires the standard database files plus fast-mode sidecars: `.syldb` and `.zip`. The outputs have the same general structure as `profile`, but mapping is performed against a reduced reference set selected by `sylph`.
+This command requires the fast-mode `.syldb` and `.zip` files plus the shared `.tax.tsv` and `.stats` files. It does not use the standard `.mmi` index. The outputs have the same general structure as `profile`, but mapping is performed against a reduced reference set selected by `sylph`.
 
 ### 6) Extract reads for a taxon from an existing BAM
 
@@ -323,21 +349,50 @@ GOTTCHA2 profiles metagenomic samples by mapping sequencing reads directly to ta
 
 ### Oxford Nanopore mode
 
-With `--nanopore`, GOTTCHA2 first converts the input read file into a temporary FASTA of fixed-length chunks to make long reads easier to map. In the current implementation, Nanopore mode:
+Use `-np/--nanopore` for a single ONT FASTA or FASTQ file. In v2.5.0 development, this selects direct mode by default. Direct mode maps each intact read to the signature database, considers primary, secondary, and supplementary candidate alignments, and resolves competing species before calculating the profile.
 
-- requires exactly one input file
-- splits reads into non-overlapping 150 bp chunks
-- drops the trailing remainder if it is shorter than 150 bp
-- removes inconsistent chunk assignments after mapping
+For each read, GOTTCHA2 sums the minimap2 alignment scores for each candidate species. It retains the alignments for a species when that species contributes at least 60% of the read's total candidate score by default. This prevents several alignments from one long read from being counted as independent reads while preserving their aligned bases for coverage calculations.
 
-If you do not override them explicitly, Nanopore mode uses these defaults:
+The earlier chunk workflow remains available with `-np --ont-chunk`. It splits reads into non-overlapping 150 bp pieces, drops a trailing piece shorter than 150 bp, maps the pieces as short reads, and removes taxonomically inconsistent chunk assignments after mapping.
 
-- `--matchIdentity 0.85`
-- `--matchFraction 0.85`
-- `--matchLength 100`
-- `--errorRate 0.03`
+| Setting | Direct mode: `-np` | Chunk mode: `-np --ont-chunk` |
+| ------- | ------------------ | ----------------------------- |
+| Input used for mapping | Intact ONT reads | Non-overlapping 150 bp chunks |
+| minimap2 preset | `lr:hq` | `sr` |
+| `--matchIdentity` | `0.85` | `0.85` |
+| `--matchFraction` | `0` | `0.85` |
+| `--matchLength` | `100` bp | `100` bp |
+| `--errorRate` | `0.01` | `0.03` |
+| Candidate resolution | Alignment-score support by species | Most consistent taxid across chunks |
 
-### Singature of interest
+The lower direct-mode match fraction is intentional: a short signature alignment can cover only a small fraction of an intact long read. An alignment passes this threshold when the aligned span covers the required fraction of either the read or the signature fragment.
+
+#### Direct-mode controls
+
+Most users can keep the defaults. For samples that need different candidate sensitivity or species assignment stringency, direct mode provides:
+
+- `--ont-max-secondary <INT>`: maximum secondary alignments requested per primary alignment. Default: `30`.
+- `--ont-secondary-ratio <FLOAT>`: minimum secondary-to-primary minimap2 chaining-score ratio. Default: `0.5`; accepted range: `0` to `1`.
+- `--ont-min-species-support <FLOAT>`: minimum fraction of a read's total candidate alignment score required to retain a species. Default: `0.6`; accepted range: `0` to `1`.
+- `-xm/--presetx <STR>`: override the minimap2 preset. Direct mode defaults to `lr:hq`; other accepted values are `sr`, `map-pb`, and `map-ont`.
+- `--m2options <STR>`: replace the automatically selected minimap2 tuning options. Use this only when you need explicit mapper control.
+
+For example, this command considers up to 50 secondary candidates while requiring 70% species support:
+
+```bash
+gottcha2 profile \
+  -d /path/to/db/gottcha_db.species.fna \
+  -i ont_reads.fastq.gz \
+  -np \
+  --ont-max-secondary 50 \
+  --ont-min-species-support 0.7 \
+  -t 8 \
+  -o out
+```
+
+These direct-mode options do not change the chunk workflow. `--ont-chunk` itself is only valid together with `-np/--nanopore`.
+
+### Signature of interest
 
 Use `--sigList` to provide a text file containing one accession or signature ID per line. This is useful for plasmids, spike-ins, or other targets you want to track during profiling.
 
@@ -365,6 +420,8 @@ If auto-detection is not possible, set it explicitly with `-l/--dbLevel`.
 4. Map reads only against that reduced reference.
 
 This mode is useful when you need faster execution with a smaller memory footprint. It still produces the standard GOTTCHA2 outputs, including the BAM and summary reports.
+
+Nanopore selection works the same way in fast mode: `fast-profile -np` maps intact ONT reads by default, while `fast-profile -np --ont-chunk` uses the chunk workflow. Direct fast mode automatically uses mapping settings suited to the reduced reference extracted by the prefilter.
 
 ---
 
@@ -478,10 +535,10 @@ Use `--noCutoff` to disable taxonomic profiling cutoffs. This is equivalent to:
 ### Alignment thresholds
 
 - `-mi, --matchIdentity <FLOAT>`
-  Minimum alignment identity for a valid match. Default: `0.95` for short reads, `0.85` for Nanopore mode.
+  Minimum alignment identity for a valid match. Default: `0.95` for short reads and `0.85` for both Nanopore workflows.
 
 - `-mf, --matchFraction <FLOAT>`
-  Minimum aligned fraction for a valid match. Default: `0.95` for short reads, `0.85` for Nanopore mode.
+  Minimum aligned fraction of the read or signature fragment for a valid match. Default: `0.95` for short reads, `0.05` for direct Nanopore mode, and `0.85` for Nanopore chunk mode.
 
 - `-mg, --matchLength <INT>`
   Minimum alignment length in bp. Default: `100`.
@@ -583,16 +640,20 @@ For `fast-profile`, it expects:
 <db>.stats
 ```
 
-### `--nanopore` requires one input file
+### `-np/--nanopore` requires one input file
 
 Nanopore mode only accepts a single FASTA or FASTQ input file. If you have multiple files, merge them first or process them separately.
+
+### `--ont-chunk` requires Nanopore mode
+
+The chunk workflow is selected with `-np --ont-chunk`. Using `--ont-chunk` without `-np/--nanopore` is rejected because chunk preprocessing and postprocessing are specific to ONT reads.
 
 ### Python and external dependency checks happen at runtime
 
 GOTTCHA2 checks for:
 
 - Python 3.9+
-- `minimap2`
+- `minimap2` 2.27 or newer
 - `samtools`
 - `sylph` when `fast-profile` is used
 
@@ -608,7 +669,7 @@ If the summary report is empty, check the full report and the log before rerunni
 
 ### Fast profile cannot find `.syldb` or `.zip`
 
-`fast-profile` requires the standard database sidecar files plus the fast-mode `.syldb` and `.zip` files. If those files are missing, either download a fast-mode-compatible database bundle or use `profile` with the standard `.mmi` database.
+`fast-profile` requires `.syldb`, `.zip`, `.tax.tsv`, and `.stats` files with a shared prefix. It does not require the standard `.mmi` index. If the fast-mode files are missing, either download a fast-mode-compatible database bundle or use `profile` with the standard `.mmi` database.
 
 ### Identity and SNI changed from older releases
 
@@ -618,5 +679,5 @@ Modern GOTTCHA2 releases report `SNI_SCORE` from consensus identity. If you comp
 
 ## License and citation
 
-- License: [TBD]
+- License: BSD 3-Clause
 - If you use GOTTCHA2 in publications, cite the GOTTCHA or GOTTCHA2 project, the database source, and the exact software version reported by `gottcha2 version`.

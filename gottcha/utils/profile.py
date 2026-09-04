@@ -491,7 +491,7 @@ def parse_args(ver, args):
             if args_parsed.ont_chunk:
                 args_parsed.matchFraction = 0.85
             elif args_parsed.nanopore:
-                args_parsed.matchFraction = 0.05
+                args_parsed.matchFraction = 0
             else:
                 args_parsed.matchFraction = 0.95
     else:
@@ -547,8 +547,10 @@ def parse_args(ver, args):
         args_parsed.sniScore = '0,0,0'
 
     if not args_parsed.errorRate:
-        if args_parsed.nanopore:
+        if args_parsed.ont_chunk:
             args_parsed.errorRate = 0.03
+        elif args_parsed.nanopore:
+            args_parsed.errorRate = 0.01
         else:
             args_parsed.errorRate = 0.005
 
