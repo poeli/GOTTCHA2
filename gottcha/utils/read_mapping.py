@@ -7,87 +7,80 @@ import pandas as pd
 import logging
 import pandas as pd
 
-def minimap2(reads: List, db: str, threads: int, mm_options: str, presetx: str, samfile: Path, logfile: Path) -> Tuple[int, str, int, bool]:
-    """
-    Map reads to the reference database using minimap2.
+def minimap2(
+    reads: List,
+    db: str,
+    threads: int,
+    mm_options: str,
+    presetx: str,
+    samfile: Path,
+    logfile: Path,
+    allow_secondary: bool = False,
+    max_secondary: int = 50,
+    secondary_ratio: float = 0.5,
+) -> Tuple[int, str, int, bool]:
+    """Map reads to the GOTTCHA2 signature reference with minimap2.
 
-    Builds and executes a command to run minimap2 for read mapping, with parameters
-    adjusted based on input settings. Filters the SAM output to keep only relevant
-    alignments.
-
-    Parameters:
-        reads (List): List of input read file paths
-        db (str): Path to the minimap2 index of the reference database
-        threads (int): Number of threads to use
-        mm_options (str): Minimap2 options for read mapping
-        presetx (str): Minimap2 preset mode ('sr', 'map-pb', or 'map-ont')
-        samfile (Path): Output SAM file path
-        logfile (Path): Log file path
-        nanopore (bool): Whether to use Nanopore-specific settings
-
-    Returns:
-        Tuple[int, str, int, bool]: (
-            exitcode (int): Exit code from the mapping process,
-            cmd (str): Command that was executed,
-            input_read_count (int): Number of input reads,
-            multi_part_index_flag (bool): Flag indicating if a multi-part index was used
-        )
+    Direct ONT mode requests primary, supplementary and a bounded set of
+    secondary candidate alignments. The command does not request supplementary
+    soft-clipping or minimap2 split-index prefix handling; the direct resolver
+    reconstructs original-read coordinates from S/H CIGAR
+    clipping and does not use MAPQ for species consistency.
     """
     input_file = " ".join(reads)
     mapped_re = re.compile(r"mapped (\d+) sequences")
     multi_part_index_flag = False
     input_read_count = 0
 
-    # Minimap2 options for short reads: the options here is essentailly the -x 'sr' equivalent with some modifications on scoring
-    sr_opts = f"-x sr {mm_options} -a -N20 --eqx --secondary=no --sam-hit-only"
+    opts = [f"-x {presetx}"]
+    if mm_options and mm_options.strip():
+        opts.append(mm_options.strip())
+    opts.extend(["-a", "--eqx", "--sam-hit-only"])
+    if allow_secondary:
+        opts.extend([
+            f"-N{max(0, int(max_secondary))}",
+            "--secondary=yes",
+            f"-p{float(secondary_ratio):g}",
+        ])
+    else:
+        opts.extend(["-N20", "--secondary=no"])
 
-    if presetx != 'sr':
-        sr_opts = f"-x {presetx} -N20 --secondary=no --sam-hit-only -a"
-
-    mm2_cmd    = f"minimap2 {sr_opts} -t{threads} {db} {input_file}"
-    filter_cmd = f"sed '/^@/d'"  # filter out header lines
-
-    # proc = subprocess.Popen(cmd, shell=True, executable='/bin/bash', stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, universal_newlines=True, bufsize=1)
+    mm2_cmd = f"minimap2 {' '.join(opts)} -t{threads} {db} {input_file}"
+    filter_cmd = ['samtools', 'view', '-x', 'SA']
 
     with samfile.open("w", encoding="utf-8") as out_f:
         mm2 = subprocess.Popen(
             mm2_cmd,
             shell=True,
-            stdout=subprocess.PIPE,      # -> sed
-            stderr=subprocess.PIPE,      # <- read THIS (minimap2 only)
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
         )
-
-        sed = subprocess.Popen(
+        filter = subprocess.Popen(
             filter_cmd,
-            shell=True,
             stdin=mm2.stdout,
             stdout=out_f,
-            stderr=subprocess.PIPE,      # sed stderr (optional)
+            stderr=subprocess.PIPE,
             text=True,
             bufsize=1,
         )
 
-        mm2.stdout.close()  # allow mm2 to get SIGPIPE if sed exits
-
+        mm2.stdout.close()
         with logfile.open("a", encoding="utf-8") as f:
-            # Stream / parse minimap2 stderr
             for line in mm2.stderr:
                 if "For a multi-part index" in line:
                     multi_part_index_flag = True
-                
-                m = mapped_re.search(line)
-                if m:
+                match = mapped_re.search(line)
+                if match:
                     logging.debug(line)
-                    input_read_count += int(m.group(1))
+                    input_read_count += int(match.group(1))
                 f.write(line)
 
         mm2.stderr.close()
-        sed.stderr.close()
-
+        filter.stderr.close()
         rc_mm = mm2.wait()
-        rc_sed = sed.wait()
+        filter.wait()
 
     return rc_mm, mm2_cmd, input_read_count, multi_part_index_flag
 

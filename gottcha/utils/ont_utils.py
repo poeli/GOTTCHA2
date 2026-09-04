@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 import argparse
 import gzip
+import itertools
+import numpy as np
 import sys
 import pandas as pd
 import os
 import logging
-from types import SimpleNamespace
+
+try:
+    from . import taxonomy as t
+except ImportError:
+    import gottcha.utils.taxonomy as t
 
 def open_in(path: str):
     if path == "-":
@@ -175,6 +181,73 @@ def preprocess_nanopore_reads(reads, outdir, prefix, silent):
     return [output_path]
 
 
+def direct_ont_reads_samfile_postprocessing(
+        samfile,
+        samfile_temp,
+        ont_min_species_ratio):
+
+    df = pd.read_csv(
+        samfile,
+        sep="\t",
+        header=None,
+        usecols=[0, 2, 13],
+        names=["QNAME", "REF", "AS"],
+        converters={
+            'AS': lambda x: x.replace('AS:i:', '')
+        }
+    )
+
+    df[['AS']] = df[['AS']].astype('int16')
+
+    logging.info(f"{len(df):,} alignments loaded from the SAM file.")
+
+    taxids = df["REF"].str.rsplit("|", n=2).str[-2]
+    taxid_to_species = {
+        taxid: t.taxid2taxidOnRank(
+            taxid,
+            target_rank="species"
+        )
+        for taxid in taxids.unique()
+    }
+
+    df["SPECIES"] = taxids.map(taxid_to_species)
+
+    logging.info(f"{df['SPECIES'].nunique():,} unique species taxids found in the SAM file.")
+
+    # Total aligned length for each species within each read
+    species_as = (
+        df.groupby(["QNAME", "SPECIES"], sort=False, dropna=False)["AS"].transform("sum").to_numpy()
+    )
+
+    # Total aligned length across all species for each read
+    read_as = (
+        df.groupby("QNAME", sort=False)["AS"].transform("sum").to_numpy()
+    )
+
+    # Keep every alignment belonging to a species satisfying:
+    #        species_AS / total_read_AS > ont_min_species_ratio
+    qualified_mask = (
+        species_as >= read_as * ont_min_species_ratio
+    )
+
+    n_qualified = int(qualified_mask.sum())
+    n_total = len(qualified_mask)
+
+    logging.info(
+        f"{n_qualified:,} / {n_total:,} ({n_qualified / n_total:.2%}) main-species alignments processed."
+        if n_total else
+        "No alignments found."
+    )
+
+    logging.info("Writing qualified hits...")
+
+    with open(samfile, "r") as fin, open(samfile_temp, "w") as fout:
+        fout.writelines(itertools.compress(fin, qualified_mask))
+
+    logging.info(f"Done writing {n_qualified:,} main-species alignments.")
+
+    return n_total, n_qualified
+
 def split_reads_samfile_postprocessing(samfile, samfile_temp):
     """
     Clean up SAM file by removing inconsistent split-read alignments.
@@ -241,34 +314,29 @@ def split_reads_samfile_postprocessing(samfile, samfile_temp):
 
 
 def main():
-    ap = argparse.ArgumentParser(description="Split long reads into fixed-length chunks; output FASTA only (input FASTA/FASTQ, .gz ok).")
-    ap.add_argument("-i", "--input", required=True, help="Input FASTA/FASTQ (.gz ok) or '-'")
-    ap.add_argument("-o", "--output", required=True, help="Output FASTA (.gz ok) or '-'")
-    ap.add_argument("-l", "--length", type=int, default=150, help="Chunk length (bp), default 150")
-    ap.add_argument("--step", type=int, help="Step between chunk starts (default = length, no overlap)")
-    ap.add_argument("--drop-tail", action="store_true", help="Drop final shorter tail chunk")
-    ap.add_argument("--min-tail", type=int, default=1, help="If keeping tail, minimum tail length to emit (default 1)")
-    ap.add_argument("--prefix", default="", help="Prefix added to read IDs (optional)")
-    ap.add_argument("--gzip-level", type=int, default=1, help="Gzip compression level for .gz output (1 fastest, 9 smallest). Default 1")
+    ap = argparse.ArgumentParser(description="Parse and filter SAM file for ONT reads based on species support.")
+    ap.add_argument("-s", "--samfile", required=True, help="Input SAM file")
+    ap.add_argument("-o", "--out-temp", required=True, help="Output temporary SAM file for qualified hits")
+    ap.add_argument("-c", "--custom-tsv", required=True, help="Custom taxonomy TSV file")
+    ap.add_argument("--ont-min-species-support", type=float, default=0.6, help="Minimum species support for ONT reads, default 0.6")
     args = ap.parse_args()
 
-    L = args.length
-    step_length = args.step if args.step is not None else L
-    if L <= 0 or step_length <= 0:
-        raise ValueError("--length and --step must be positive")
-    if not (1 <= args.gzip_level <= 9):
-        raise ValueError("--gzip-level must be 1..9")
+    ont_min_species_support = args.ont_min_species_support
+    samfile = args.samfile
+    samfile_temp = args.out_temp
 
-    split_to_fasta(
-        input_path=args.input,
-        output_path=args.output,
-        split_length=L,
-        step_length=step_length,
-        drop_tail=args.drop_tail,
-        min_tail=args.min_tail,
-        prefix=args.prefix,
-        gzip_level=args.gzip_level,
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='[%(asctime)s] [%(levelname)s] [%(module)s] %(message)s',
+        datefmt='%Y%m%d %H:%M:%S',
     )
+
+    t.loadTaxonomy(cus_taxonomy_file=args.custom_tsv)
+
+    tol_alignment_cnt, tol_q_alignment_cnt = direct_ont_reads_samfile_postprocessing(samfile, samfile_temp, ont_min_species_support)
+
+    print(f'Total alignments: {tol_alignment_cnt}, Total qualified alignments: {tol_q_alignment_cnt}')
+
 
 if __name__ == "__main__":
     main()

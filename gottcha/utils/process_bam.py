@@ -34,7 +34,6 @@ Output columns (TSV):
 from __future__ import annotations
 
 import argparse
-import gc
 import multiprocessing as mp
 import os
 import sys
@@ -142,7 +141,13 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
                     continue
 
             if min_frac > 0.0:
-                if (aln.alen / aln.query_length) < min_frac and (aln.alen / bam.get_reference_length(rname)) < min_frac:
+                if aln.query_length <= 0:
+                    #for hard clips, query_length can be 0, recover it from CIGAR
+                    query_length = sum(length for op, length in aln.cigartuples if op in (0, 1, 4, 5, 7, 8)) # M/I/S/H/=/X
+                else:
+                    query_length = aln.query_length
+
+                if (aln.alen / query_length) < min_frac and (aln.alen / bam.get_reference_length(rname)) < min_frac:
                     invalid_alns += 1
                     continue
 
@@ -155,10 +160,13 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
                 if aln.has_tag('ZC'):
                     numreads += 1
             else:
-                numreads += 1
+                if aln.is_secondary or aln.is_supplementary:
+                    pass
+                else:
+                    numreads += 1
             
             # count total read length (including softclips) for mean depth calculation
-            readlength += aln.query_length
+            readlength += aln.alen
 
         cig = aln.cigartuples
         if not cig:
@@ -292,6 +300,7 @@ def parse_aln_from_bam(bam_path: str,
         return 2
 
     logging.debug(f"Parsing {len(references)} references with {processes} processes...")
+    logging.debug(f"Parameters: min_mapq={min_mapq}, min_frac={min_frac}, min_idt={min_idt}, min_alen={min_alen}, include_secondary={include_secondary}, include_supplementary={include_supplementary}, include_duplicates={include_duplicates}, include_qcfail={include_qcfail}, split_read_flag={split_read_flag}")
 
     tasks = _iter_tasks(references, lengths, chunk_size)
 

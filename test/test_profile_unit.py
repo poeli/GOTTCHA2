@@ -1,8 +1,10 @@
+import io
 import os
 import sys
 import tempfile
 import types
 import unittest
+from contextlib import redirect_stderr
 
 
 if "pysam" not in sys.modules:
@@ -29,7 +31,7 @@ class TestProfileUtils(unittest.TestCase):
             self.assertEqual(args.prefix, "reads")
             self.assertEqual(args.input[0], os.path.abspath(read_path))
 
-    def test_parse_args_nanopore_defaults(self):
+    def test_parse_args_nanopore_defaults_to_direct_mapping(self):
         with tempfile.TemporaryDirectory() as tmp:
             db_prefix = os.path.join(tmp, "gottcha_db.species")
             read_path = os.path.join(tmp, "ont.fastq")
@@ -40,9 +42,58 @@ class TestProfileUtils(unittest.TestCase):
 
             args = profile.parse_args("test", ["profile", "-i", read_path, "-d", db_prefix, "-np"])
 
+            self.assertTrue(args.nanopore)
+            self.assertFalse(args.ont_chunk)
+            self.assertEqual(args.matchIdentity, 0.85)
+            self.assertEqual(args.matchFraction, 0.05)
+            self.assertEqual(args.matchLength, 100)
+            self.assertEqual(args.errorRate, 0.03)
+            self.assertEqual(args.presetx, "lr:hq")
+            self.assertEqual(args.m2options, "-n1 -m25 -s100 --no-long-join")
+            self.assertEqual(args.ont_max_secondary, 30)
+            self.assertEqual(args.ont_secondary_ratio, 0.5)
+            self.assertEqual(args.ont_min_species_support, 0.6)
+
+    def test_parse_args_nanopore_chunk_mode_uses_chunk_defaults(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_prefix = os.path.join(tmp, "gottcha_db.species")
+            read_path = os.path.join(tmp, "ont.fastq")
+            open(db_prefix + ".mmi", "w").close()
+            open(db_prefix + ".tax.tsv", "w").close()
+            open(db_prefix + ".stats", "w").close()
+            open(read_path, "w").close()
+
+            args = profile.parse_args(
+                "test",
+                ["profile", "-i", read_path, "-d", db_prefix, "-np", "--ont-chunk"],
+            )
+
+            self.assertTrue(args.nanopore)
+            self.assertTrue(args.ont_chunk)
             self.assertEqual(args.matchIdentity, 0.85)
             self.assertEqual(args.matchFraction, 0.85)
+            self.assertEqual(args.matchLength, 100)
             self.assertEqual(args.errorRate, 0.03)
+            self.assertEqual(args.presetx, "sr")
+            self.assertEqual(args.m2options, "-s120")
+
+    def test_parse_args_rejects_ont_chunk_without_nanopore_mode(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_prefix = os.path.join(tmp, "gottcha_db.species")
+            read_path = os.path.join(tmp, "reads.fastq")
+            open(db_prefix + ".mmi", "w").close()
+            open(db_prefix + ".tax.tsv", "w").close()
+            open(db_prefix + ".stats", "w").close()
+            open(read_path, "w").close()
+
+            stderr = io.StringIO()
+            with redirect_stderr(stderr), self.assertRaises(SystemExit):
+                profile.parse_args(
+                    "test",
+                    ["profile", "-i", read_path, "-d", db_prefix, "--ont-chunk"],
+                )
+
+            self.assertIn("--ont-chunk requires --nanopore", stderr.getvalue())
 
     def test_parse_args_extractfullref_and_nocutoff(self):
         with tempfile.TemporaryDirectory() as tmp:
