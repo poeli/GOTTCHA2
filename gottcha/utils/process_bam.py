@@ -3,49 +3,600 @@
 process_bam.py
 
 Compute per-region coverage and consensus-mismatch metrics from a BAM file
-(with .bai index present), **without** a reference FASTA.
+(with .bai index present), without a reference FASTA.
 
-Assumptions / notes:
-- Alignments are from minimap2 with `--eqx`, so mismatches are encoded as CIGAR op `X`
-  and matches as `=`.
-- Depth is computed from aligned query bases (CIGAR ops M/= /X). Deletions (D) and
-  refskips (N) do not contribute to depth in this implementation.
-- "mismatches" counts total mismatched aligned bases across all reads (sum of `X`).
-- "pileup_mismatch" counts reference positions where >50% of aligned reads at that
-  position are mismatches (i.e., #positions where X_depth / depth > 0.5).
+Also identify connected groups of species linked by qualified read mappings.
 
-Parallelization:
-- References are split into fixed-size chunks along their length. Each chunk is processed
-  independently in a worker process.
-- Each worker opens the BAM once (via Pool initializer) for performance.
+Example
+-------
+read1 -> sp1
+read2 -> sp1, sp2, sp3
+read3 -> sp2, sp4
+read4 -> sp5
+read5 -> sp6, sp7
 
-Output columns (TSV):
-- rname
-- startpos
-- endpos
-- numreads
-- covbases
-- coverage
-- mismatches
-- pileup_mismatch
-- meandepth
+Produces:
+
+GROUP 1: sp1, sp2, sp3, sp4
+GROUP 2: sp6, sp7
+
+sp5 is omitted because it is not linked to another species.
+
+Species are resolved from reference names using:
+
+    taxid = rname.split('|')[-2]
+    spe_taxid = t.taxid2taxidOnRank(taxid, target_rank="species")
+
+
+Coverage assumptions / notes
+----------------------------
+- Alignments are from minimap2 with --eqx, so mismatches are encoded as
+  CIGAR op X and matches as =.
+- Depth is computed from aligned query bases (M/= /X).
+- Deletions and refskips do not contribute to depth.
+- "mismatches" counts total mismatched aligned bases across all reads.
+- "pileup_mismatch" / CONSENSUS_DIFF counts reference positions where
+  >50% of aligned reads at that position are mismatches.
+
+Species-linkage algorithm
+-------------------------
+A separate fast streaming BAM pass uses union-find.
+
+For each read, only the first observed species needs to be remembered:
+
+    read -> anchor species
+
+Subsequent qualified alignments from the same read are unioned with that
+anchor. Thus:
+
+    read -> sp1, sp2, sp3
+
+requires only:
+
+    union(sp1, sp2)
+    union(sp1, sp3)
+
+rather than constructing every pairwise species edge.
+
+The resulting connected components represent groups of species linked
+transitively by reads.
+
+Secondary alignments
+--------------------
+Secondary alignments are INCLUDED for species linkage by default because
+minimap2 normally represents alternative mappings as secondary alignments.
+
+This is independent of --include-secondary, which still controls whether
+secondary alignments contribute to coverage/mismatch calculations.
+
+Use --groups-primary-only to prevent secondary alignments from being used
+for species linkage.
+
+Parallelization
+---------------
+- References are split into fixed-size chunks.
+- Each chunk is processed independently by a worker.
+- Each worker opens the BAM once.
+
+Global group lookups
+--------------------
+_GROUPS:
+    species_taxid -> group_id
+
+_GROUP_MEMBERS:
+    group_id -> list of species_taxids
 """
 
 from __future__ import annotations
 
 import argparse
+import logging
 import multiprocessing as mp
 import os
 import sys
-import logging
-from typing import Iterable, List, Optional, Tuple
+from collections import defaultdict
+from typing import Dict, Iterable, List, Optional, Tuple
 
 import numpy as np
 import pysam
 
-# Global BAM handle and config for worker processes
+try:
+    from . import taxonomy as t
+except ImportError:
+    import taxonomy as t
+
+
+# ----------------------------------------------------------------------
+# Globals
+# ----------------------------------------------------------------------
+
+# BAM handle/config for worker processes
 _BAM: Optional[pysam.AlignmentFile] = None
 _CFG = {}
+
+# Species linkage results in the main process:
+#
+#   _GROUPS["12345"] = 1
+#
+# means species taxid 12345 belongs to linked group 1.
+_GROUPS: Dict[str, int] = {}
+
+# Reverse lookup:
+#
+#   _GROUP_MEMBERS[1] = ["12345", "67890", ...]
+_GROUP_MEMBERS: Dict[int, List[str]] = {}
+
+
+# ----------------------------------------------------------------------
+# Alignment filtering
+# ----------------------------------------------------------------------
+
+def _alignment_filter_reason(
+    aln: pysam.AlignedSegment,
+    bam: pysam.AlignmentFile,
+    cfg: dict,
+) -> Optional[str]:
+    """
+    Return None if the alignment passes all filters.
+
+    Otherwise return a rejection reason.
+
+    The filtering logic is shared by:
+      1. coverage/mismatch calculation
+      2. species-linkage discovery
+    """
+
+    if aln.is_unmapped:
+        return "unmapped"
+
+    if (not cfg["include_secondary"]) and aln.is_secondary:
+        return "secondary"
+
+    if (not cfg["include_supplementary"]) and aln.is_supplementary:
+        return "supplementary"
+
+    if (not cfg["include_duplicates"]) and aln.is_duplicate:
+        return "duplicate"
+
+    if (not cfg["include_qcfail"]) and aln.is_qcfail:
+        return "qcfail"
+
+    if aln.mapping_quality < cfg["min_mapq"]:
+        return "mapq"
+
+    alen = aln.alen or 0
+
+    if alen <= 0:
+        return "length"
+
+    # --------------------------------------------------------------
+    # Alignment identity
+    # --------------------------------------------------------------
+    min_idt = cfg["min_idt"]
+
+    if min_idt > 0.0 and aln.has_tag("NM"):
+        nm = aln.get_tag("NM")
+        identity = 1.0 - (nm / alen)
+
+        if identity < min_idt:
+            return "identity"
+
+    # --------------------------------------------------------------
+    # Fraction of query/reference represented by alignment
+    # --------------------------------------------------------------
+    min_frac = cfg["min_frac"]
+
+    if min_frac > 0.0:
+
+        query_length = aln.query_length
+
+        if not query_length:
+            # Recover length for hard-clipped reads from CIGAR.
+            #
+            # CIGAR:
+            # 0=M, 1=I, 4=S, 5=H, 7==, 8=X
+            cig = aln.cigartuples or ()
+
+            query_length = sum(
+                length
+                for op, length in cig
+                if op in (0, 1, 4, 5, 7, 8)
+            )
+
+        if query_length <= 0:
+            return "fraction"
+
+        reference_length = bam.lengths[aln.reference_id]
+
+        if (
+            alen / query_length < min_frac
+            and
+            alen / reference_length < min_frac
+        ):
+            return "fraction"
+
+    # --------------------------------------------------------------
+    # Minimum aligned length
+    # --------------------------------------------------------------
+    min_alen = cfg["min_alen"]
+
+    if min_alen > 0 and alen < min_alen:
+        return "length"
+
+    return None
+
+
+# ----------------------------------------------------------------------
+# Taxonomy helpers
+# ----------------------------------------------------------------------
+
+def _rname_to_species_taxid(rname: str) -> Optional[str]:
+    """
+    Convert a BAM reference name to a species-level taxid.
+
+    Expected reference-name convention:
+
+        ...|taxid|...
+
+    where:
+
+        taxid = rname.split('|')[-2]
+    """
+
+    try:
+        parts = rname.split("|")
+
+        if len(parts) < 2:
+            return None
+
+        taxid = parts[-2]
+
+        spe_taxid = t.taxid2taxidOnRank(taxid, target_rank="species",)
+
+        if spe_taxid is None:
+            return None
+
+        if not spe_taxid or spe_taxid == "0":
+            return None
+
+        return spe_taxid
+
+    except Exception as exc:
+        logging.debug(
+            "Unable to resolve species taxid from reference %s: %s",
+            rname,
+            exc,
+        )
+        return None
+
+
+def _taxid_sort_key(taxid: str):
+    """Sort numeric taxids numerically when possible."""
+
+    try:
+        return 0, int(taxid)
+    except (TypeError, ValueError):
+        return 1, str(taxid)
+
+
+# ----------------------------------------------------------------------
+# Species linkage
+# ----------------------------------------------------------------------
+
+def find_linked_species_groups(
+    bam_path: str,
+    min_frac: float,
+    min_idt: float,
+    min_alen: int,
+    min_mapq: int = 0,
+    htslib_threads: int = 1,
+    include_secondary: bool = True,
+    include_supplementary: bool = False,
+    include_duplicates: bool = False,
+    include_qcfail: bool = False,
+) -> Tuple[Dict[int, List[str]], Dict[str, int]]:
+    """
+    Find connected groups of species linked by qualified read alignments.
+
+    Returns
+    -------
+    groups
+        group_id -> list of species taxids
+
+        Example:
+            {
+                1: ["100", "101", "102"],
+                2: ["200", "201"],
+            }
+
+    species_to_group
+        species taxid -> group_id
+
+        Example:
+            {
+                "100": 1,
+                "101": 1,
+                "102": 1,
+                "200": 2,
+                "201": 2,
+            }
+
+    Notes
+    -----
+    Singleton species are deliberately omitted.
+
+    Complexity is approximately O(number of qualified alignments), because
+    union-find operations are effectively constant-time.
+    """
+
+    cfg = {
+        "min_mapq": min_mapq,
+        "min_frac": min_frac,
+        "min_idt": min_idt,
+        "min_alen": min_alen,
+        "include_secondary": include_secondary,
+        "include_supplementary": include_supplementary,
+        "include_duplicates": include_duplicates,
+        "include_qcfail": include_qcfail,
+    }
+
+    # --------------------------------------------------------------
+    # Map species taxids to compact integer indices.
+    #
+    # This makes the union-find arrays and per-read anchors much smaller
+    # and faster than repeatedly storing taxid strings.
+    # --------------------------------------------------------------
+
+    species_to_idx: Dict[str, int] = {}
+    idx_to_species: List[str] = []
+
+    parent: List[int] = []
+    component_size: List[int] = []
+
+    def get_species_idx(species_taxid: str) -> int:
+        idx = species_to_idx.get(species_taxid)
+
+        if idx is not None:
+            return idx
+
+        idx = len(idx_to_species)
+
+        species_to_idx[species_taxid] = idx
+        idx_to_species.append(species_taxid)
+
+        parent.append(idx)
+        component_size.append(1)
+
+        return idx
+
+    def find(x: int) -> int:
+        """
+        Iterative union-find root lookup with path compression.
+        """
+
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+
+        return x
+
+    def union(a: int, b: int) -> None:
+        """
+        Union by component size.
+        """
+
+        root_a = find(a)
+        root_b = find(b)
+
+        if root_a == root_b:
+            return
+
+        if component_size[root_a] < component_size[root_b]:
+            root_a, root_b = root_b, root_a
+
+        parent[root_b] = root_a
+        component_size[root_a] += component_size[root_b]
+
+    # --------------------------------------------------------------
+    # Remember only one anchor species for each read.
+    #
+    # Example:
+    #
+    #   read1 -> sp1, sp2, sp3
+    #
+    # produces:
+    #
+    #   union(sp1, sp2)
+    #   union(sp1, sp3)
+    #
+    # rather than storing {sp1, sp2, sp3}.
+    # --------------------------------------------------------------
+
+    read_anchor: Dict[str, int] = {}
+
+    n_alignments = 0
+    n_qualified = 0
+    n_species_resolved = 0
+    n_cross_species_links = 0
+
+    with pysam.AlignmentFile(
+        bam_path,
+        "rb",
+        threads=htslib_threads,
+    ) as bam:
+
+        # Cache:
+        #
+        #   reference_id -> species index
+        #
+        # Sentinel values:
+        #   -2 = not evaluated
+        #   -1 = could not resolve species
+        #
+        # Taxonomy lookup can be relatively expensive, so we perform it
+        # only once per BAM reference.
+        ref_species_idx = [-2] * bam.nreferences
+
+        for aln in bam.fetch(until_eof=True):
+
+            n_alignments += 1
+
+            reason = _alignment_filter_reason(
+                aln,
+                bam,
+                cfg,
+            )
+
+            if reason is not None:
+                continue
+
+            n_qualified += 1
+
+            ref_id = aln.reference_id
+
+            species_idx = ref_species_idx[ref_id]
+
+            # ------------------------------------------------------
+            # Resolve reference -> species only once.
+            # ------------------------------------------------------
+            if species_idx == -2:
+
+                rname = bam.references[ref_id]
+
+                species_taxid = _rname_to_species_taxid(rname)
+
+                if species_taxid is None:
+                    ref_species_idx[ref_id] = -1
+                    continue
+
+                species_idx = get_species_idx(species_taxid)
+
+                ref_species_idx[ref_id] = species_idx
+
+                n_species_resolved += 1
+
+            elif species_idx == -1:
+                continue
+
+            # ------------------------------------------------------
+            # Link species through query/read name.
+            # ------------------------------------------------------
+            qname = aln.query_name
+
+            anchor_idx = read_anchor.get(qname)
+
+            if anchor_idx is None:
+                read_anchor[qname] = species_idx
+                continue
+
+            # Same read mapping to another reference within the same
+            # species does not create a species-to-species link.
+            if anchor_idx == species_idx:
+                continue
+
+            union(anchor_idx, species_idx)
+            n_cross_species_links += 1
+
+    n_reads = len(read_anchor)
+
+    # No longer needed after the union-find graph is complete.
+    del read_anchor
+
+    # --------------------------------------------------------------
+    # Convert connected components back to species taxids.
+    # --------------------------------------------------------------
+
+    components: Dict[int, List[str]] = defaultdict(list)
+
+    for idx, species_taxid in enumerate(idx_to_species):
+
+        root = find(idx)
+
+        components[root].append(species_taxid)
+
+    linked_components: List[List[str]] = []
+
+    for members in components.values():
+
+        # Exclude singleton species.
+        if len(members) < 2:
+            continue
+
+        members.sort(key=_taxid_sort_key)
+
+        linked_components.append(members)
+
+    # Deterministic group ordering.
+    linked_components.sort(
+        key=lambda members: _taxid_sort_key(members[0])
+    )
+
+    groups: Dict[int, List[str]] = {}
+    species_to_group: Dict[str, int] = {}
+
+    for group_id, members in enumerate(
+        linked_components,
+        start=1,
+    ):
+
+        groups[group_id] = members
+
+        for species_taxid in members:
+            species_to_group[species_taxid] = group_id
+
+    logging.info(
+        "Species linkage: "
+        "%d BAM alignments, "
+        "%d qualified alignments, "
+        "%d reads, "
+        "%d resolved species, "
+        "%d cross-species links, "
+        "%d connected species groups",
+        n_alignments,
+        n_qualified,
+        n_reads,
+        len(idx_to_species),
+        n_cross_species_links,
+        len(groups),
+    )
+
+    return groups, species_to_group
+
+
+def write_species_groups(
+    groups: Dict[int, List[str]],
+    out_path: str,
+) -> None:
+    """
+    Write connected species groups as TSV.
+
+    Format:
+
+        GROUP_ID    N_SPECIES    SPECIES_TAXIDS
+        1           4            11,22,33,44
+        2           2            55,66
+    """
+
+    with open(out_path, "w", encoding="utf-8") as out:
+
+        out.write(
+            "GROUP_ID\t"
+            "N_SPECIES\t"
+            "SPECIES_TAXIDS\n"
+        )
+
+        for group_id, species in groups.items():
+
+            out.write(
+                f"{group_id}\t"
+                f"{len(species)}\t"
+                f"{','.join(species)}\n"
+            )
+
+
+# ----------------------------------------------------------------------
+# Multiprocessing worker
+# ----------------------------------------------------------------------
 
 def _init_worker(
     bam_path: str,
@@ -60,9 +611,20 @@ def _init_worker(
     include_qcfail: bool,
     split_read_flag: Optional[bool] = False,
 ) -> None:
-    """Initializer for each worker process: open BAM once and stash filters."""
+    """
+    Initializer for each worker process.
+
+    Open BAM once and stash filters.
+    """
+
     global _BAM, _CFG
-    _BAM = pysam.AlignmentFile(bam_path, "rb", threads=htslib_threads)
+
+    _BAM = pysam.AlignmentFile(
+        bam_path,
+        "rb",
+        threads=htslib_threads,
+    )
+
     _CFG = {
         "min_mapq": min_mapq,
         "min_frac": min_frac,
@@ -116,57 +678,49 @@ def _process_chunk(task: Tuple[str, int, int]) -> List:
 
     # Iterate reads overlapping this region.
     for aln in bam.fetch(rname, start0, end0):
-        # Basic filters
-        if aln.is_unmapped:
-            continue
-        if (not inc_sec) and aln.is_secondary:
-            continue
-        if (not inc_sup) and aln.is_supplementary:
-            continue
-        if (not inc_dup) and aln.is_duplicate:
-            continue
-        if (not inc_qcf) and aln.is_qcfail:
-            continue
-        if aln.mapping_quality < min_mapq:
-            continue
+        # IMPORTANT:
+        #
+        # Apply filters to ALL alignments contributing to this chunk,
+        # including alignments whose reference_start lies in a previous
+        # chunk.
+        #
+        # In the previous implementation, threshold filters were inside:
+        #
+        #     if aln.reference_start >= start0
+        #
+        # so a read spanning a chunk boundary could contribute depth in
+        # the next chunk even if it failed min-idt/min-frac/min-alen.
+        filter_reason = _alignment_filter_reason(aln, bam, _CFG,)
 
-        # Note: aln.reference_start is 0-based leftmost coordinate of the alignment on the reference.
-        # Only count reads that have their aligned portion starting within the chunk towards numreads, to avoid double-counting reads that span multiple chunks.
-        if aln.reference_start >= start0:
-
-            if min_idt > 0.0 and aln.has_tag('NM'):
-                mm_idt = (1-aln.get_tag('NM')/aln.alen)
-                if min_idt > mm_idt:
-                    invalid_alns += 1
-                    continue
-
-            if min_frac > 0.0:
-                if aln.query_length <= 0:
-                    #for hard clips, query_length can be 0, recover it from CIGAR
-                    query_length = sum(length for op, length in aln.cigartuples if op in (0, 1, 4, 5, 7, 8)) # M/I/S/H/=/X
-                else:
-                    query_length = aln.query_length
-
-                if (aln.alen / query_length) < min_frac and (aln.alen / bam.get_reference_length(rname)) < min_frac:
-                    invalid_alns += 1
-                    continue
-
-            if min_alen > 0 and aln.alen < min_alen:
+        if filter_reason is not None:
+            # Preserve existing INVALID_ALNS semantics:
+            # only identity/fraction/length failures are counted, and
+            # only in the chunk where the alignment starts.
+            if (
+                aln.reference_start >= start0
+                and
+                filter_reason
+                in {
+                    "identity",
+                    "fraction",
+                    "length",
+                }
+            ):
                 invalid_alns += 1
                 continue
 
-            # If split_read_flag is set, only count reads with ZC tag (the first chunked reads) towards numreads.
-            if split_read_flag:
-                if aln.has_tag('ZC'):
-                    numreads += 1
+        # If split_read_flag is set, only count reads with ZC tag (the first chunked reads) towards numreads.
+        if split_read_flag:
+            if aln.has_tag('ZC'):
+                numreads += 1
+        else:
+            if aln.is_secondary or aln.is_supplementary:
+                pass
             else:
-                if aln.is_secondary or aln.is_supplementary:
-                    pass
-                else:
-                    numreads += 1
-            
-            # count total read length (including softclips) for mean depth calculation
-            readlength += aln.alen
+                numreads += 1
+        
+        # count total read length (including softclips) for mean depth calculation
+        readlength += aln.alen
 
         cig = aln.cigartuples
         if not cig:
@@ -352,6 +906,25 @@ def parse_aln_from_bam(bam_path: str,
         pool.join()
 
     logging.debug(f"Total signature fragments processed: {len(ref_chunk_results)-1}")
+
+
+    # find_linked_species_groups
+    logging.info("Finding linked species groups...")
+    groups, species_to_group = find_linked_species_groups(bam_path, 
+                               min_frac=min_frac,
+                               min_idt=min_idt,
+                               min_alen=min_alen,
+                               min_mapq=min_mapq,
+                               htslib_threads=htslib_threads,
+                               include_secondary=include_secondary,
+                               include_supplementary=include_supplementary,
+                               include_duplicates=include_duplicates,
+                               include_qcfail=include_qcfail)
+    logging.info(f"Found {len(groups)} linked species groups.")
+    logging.debug(f"Species to group mapping: {species_to_group}")
+    logging.debug(f"Group members: {groups}")
+
+    write_species_groups(groups, f"{bam_path}.species_groups.tsv")
 
     return ref_chunk_results
 

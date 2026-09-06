@@ -1065,7 +1065,7 @@ def main(args):
         gc.collect()
 
     # remove multiple hits
-    if multi_part_index_flag and not direct_ont_flag:
+    if multi_part_index_flag:
         # remove multiple hits from the SAM file
         print_message("Removing multiple hits from SAM file...", argvs.silent, begin_t, logfile)
         samfile_temp = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
@@ -1080,27 +1080,27 @@ def main(args):
 
         gc.collect()
 
-    # preprocess SAM file for nanopore reads
-    if direct_ont_flag and Path(samfile).is_file():
-        print_message("Resolving direct ONT alignments...", argvs.silent, begin_t, logfile)
-        samfile_temp = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
-        tol_alignment_cnt, tol_q_alignment_cnt = ont_utils.direct_ont_reads_samfile_postprocessing(samfile, samfile_temp, argvs.ont_min_species_support)
-        samfile_temp.replace(samfile)
-        print_message(f" - {tol_alignment_cnt:,} total alignments", argvs.silent, begin_t, logfile)
-        print_message(f" - {tol_q_alignment_cnt:,} qualified-species alignments retained", argvs.silent, begin_t, logfile)
-        if tol_q_alignment_cnt == 0:
-            print_message("No direct ONT alignments remained after species resolution. Stopping.", argvs.silent, begin_t, logfile)
-            sys.exit(0)
-        gc.collect()
-    elif argvs.nanopore and Path(samfile).is_file():
-        print_message("Removing inconsistent read chunks from SAM file...", argvs.silent, begin_t, logfile)
-        samfile_temp = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
-        tol_chunks_count, tol_chunks_qualified = ont_utils.split_reads_samfile_postprocessing(samfile, samfile_temp)
-        if tol_chunks_count > 0:
-            samfile_temp.rename(samfile)
-        print_message(f" - {tol_chunks_count:,} mapped read chunks processed", argvs.silent, begin_t, logfile)
-        print_message(f" - {tol_chunks_count-tol_chunks_qualified:,} inconsistent hits removed", argvs.silent, begin_t, logfile)
-        gc.collect()
+    # # preprocess SAM file for nanopore reads
+    # if direct_ont_flag and Path(samfile).is_file():
+    #     print_message("Resolving direct ONT alignments...", argvs.silent, begin_t, logfile)
+    #     samfile_temp = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
+    #     tol_alignment_cnt, tol_q_alignment_cnt = ont_utils.direct_ont_reads_samfile_postprocessing(samfile, samfile_temp, argvs.ont_min_species_support)
+    #     samfile_temp.replace(samfile)
+    #     print_message(f" - {tol_alignment_cnt:,} total alignments", argvs.silent, begin_t, logfile)
+    #     print_message(f" - {tol_q_alignment_cnt:,} qualified-species alignments retained", argvs.silent, begin_t, logfile)
+    #     if tol_q_alignment_cnt == 0:
+    #         print_message("No direct ONT alignments remained after species resolution. Stopping.", argvs.silent, begin_t, logfile)
+    #         sys.exit(0)
+    #     gc.collect()
+    # elif argvs.nanopore and Path(samfile).is_file():
+    #     print_message("Removing inconsistent read chunks from SAM file...", argvs.silent, begin_t, logfile)
+    #     samfile_temp = Path(argvs.outdir) / f"{argvs.prefix}.gottcha_{argvs.dbLevel}.sam.temp"
+    #     tol_chunks_count, tol_chunks_qualified = ont_utils.split_reads_samfile_postprocessing(samfile, samfile_temp)
+    #     if tol_chunks_count > 0:
+    #         samfile_temp.rename(samfile)
+    #     print_message(f" - {tol_chunks_count:,} mapped read chunks processed", argvs.silent, begin_t, logfile)
+    #     print_message(f" - {tol_chunks_count-tol_chunks_qualified:,} inconsistent hits removed", argvs.silent, begin_t, logfile)
+    #     gc.collect()
 
     # processing alignments and generate results
     if not argvs.extractOnly:
