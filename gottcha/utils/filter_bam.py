@@ -95,7 +95,12 @@ def alignment_meets_criteria(
             return False
 
     if criteria.min_fraction > 0:
-        query_length = alignment.query_length or 0
+        if alignment.query_length <= 0:
+            #for hard clips, query_length can be 0, recover it from CIGAR
+            query_length = sum(length for op, length in alignment.cigartuples if op in (0, 1, 4, 5, 7, 8)) # M/I/S/H/=/X
+        else:
+            query_length = alignment.query_length
+
         query_fraction = aligned_length / query_length if query_length > 0 else 0.0
         reference_fraction = (
             aligned_length / reference_length if reference_length > 0 else 0.0
@@ -201,14 +206,6 @@ def build_parser() -> argparse.ArgumentParser:
         help="HTSlib compression/decompression threads (default: 1)",
     )
     parser.add_argument(
-        "--include-secondary", action="store_true", help="Include secondary alignments"
-    )
-    parser.add_argument(
-        "--include-supplementary",
-        action="store_true",
-        help="Include supplementary alignments",
-    )
-    parser.add_argument(
         "--include-duplicates",
         action="store_true",
         help="Include duplicate-marked alignments",
@@ -232,8 +229,8 @@ def main(argv: Optional[List[str]] = None, stderr: Optional[TextIO] = None) -> i
             criteria,
             min_mapq=args.min_mapq,
             threads=args.threads,
-            include_secondary=args.include_secondary,
-            include_supplementary=args.include_supplementary,
+            include_secondary=False,
+            include_supplementary=True,
             include_duplicates=args.include_duplicates,
             include_qcfail=args.include_qcfail,
         )

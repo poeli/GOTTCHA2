@@ -1125,7 +1125,7 @@ def main(args):
                 min_frac=argvs.matchFraction,
                 min_idt=argvs.matchIdentity,
                 min_alen=argvs.matchLength,
-                include_secondary=direct_ont_flag,
+                include_secondary=False,
                 include_supplementary=direct_ont_flag,
                 split_read_flag=split_read_flag
             )
