@@ -882,7 +882,7 @@ def parse_aln_from_bam(
     split_read_flag: Optional[bool] = False,
     min_link_reads: int = 3,
     min_link_fraction: float = 0.01,
-    same_genus_only: bool = False,
+    same_genus_only: bool = True,
     max_link_species_per_read: int = 0,
 ) -> List[List]:
     """
