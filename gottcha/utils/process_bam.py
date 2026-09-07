@@ -1136,7 +1136,7 @@ def parse_aln_from_bam(
     # Linkage state is no longer needed after diagnostics/groups are finalized.
     del read_species
 
-    return ref_chunk_results
+    return ref_chunk_results, groups
 
 
 def main(argv: Optional[List[str]] = None) -> int:

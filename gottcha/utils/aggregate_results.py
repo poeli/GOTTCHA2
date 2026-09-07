@@ -102,6 +102,7 @@ def group_refs_to_strains(ref_chunk_results: list, acc_list: list, acc_list_acti
         df_stats (pandas.DataFrame): DataFrame containing genome signature statistics
     Returns:
         pandas.DataFrame: DataFrame with strain-level statistics
+        int: Number of reads mapped to accessions of interest
     """
     # covert mapping info to df
     r_chunk_df = pd.DataFrame(ref_chunk_results[1:], columns=ref_chunk_results[0])
@@ -208,7 +209,8 @@ def aggregate_taxonomy(str_df: pd.DataFrame,
                        sni_score_species: float, 
                        sni_score_strain: float, 
                        sni_score_cutoff: float, 
-                       error_rate: float) -> pd.DataFrame:
+                       error_rate: float,
+                       groups: dict) -> pd.DataFrame:
     """
     Aggregate strain-level results to higher taxonomic ranks.
 
@@ -264,6 +266,55 @@ def aggregate_taxonomy(str_df: pd.DataFrame,
         sys.exit(1)
     
     logging.debug(f"Taxonomic lineage info added to {len(str_df)} strains.")
+
+    # reassigning strains by species if groups are provided
+    if groups:
+        species_depth = str_df.groupby('species_taxid', sort=False)['DEPTH'].sum()
+        representative_by_species = {}
+
+        for species_taxids in groups.values():
+            group_depth = species_depth.reindex(species_taxids).dropna()
+            if len(group_depth) < 2:
+                continue
+
+            representative = group_depth.idxmax()
+            representative_by_species.update(
+                (taxid, representative)
+                for taxid in group_depth.index
+                if taxid != representative
+            )
+
+        if representative_by_species:
+            reassigned = str_df['species_taxid'].isin(representative_by_species)
+            representative_taxids = str_df.loc[
+                reassigned, 'species_taxid'
+            ].map(representative_by_species)
+            lineage_cols = (
+                [f'{rank}_name' for rank in ranks[1:]]
+                + [f'{rank}_taxid' for rank in ranks[1:]]
+            )
+            species_lineages = (
+                str_df.drop_duplicates('species_taxid')
+                .set_index('species_taxid')[lineage_cols]
+            )
+
+            str_df.loc[reassigned, lineage_cols] = species_lineages.loc[
+                representative_taxids
+            ].to_numpy()
+
+            current_notes = str_df.loc[reassigned, 'NOTE'].fillna('')
+            grouping_notes = (
+                'Grouped with species '
+                + representative_taxids.map(species_lineages['species_name'])
+                + ' ('
+                + representative_taxids.astype(str)
+                + ')'
+            )
+            str_df.loc[reassigned, 'NOTE'] = (
+                current_notes
+                + current_notes.ne('').map({True: '; ', False: ''})
+                + grouping_notes
+            )
 
     # decide top signature level, convert the rank to the corresponding number
     str_df['SIG_LEVEL'] = str_df['SIG_LEVEL'].map(major_ranks)

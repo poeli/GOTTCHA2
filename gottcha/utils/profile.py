@@ -1119,7 +1119,7 @@ def main(args):
 
         if Path(bamfile).exists() and Path(f"{bamfile}.bai").exists():
             print_message("Processing alignments...", argvs.silent, begin_t, logfile)
-            ref_chunk_results = process_bam.parse_aln_from_bam(
+            (ref_chunk_results, groups) = process_bam.parse_aln_from_bam(
                 bam_path=bamfile,
                 processes=argvs.threads,
                 min_frac=argvs.matchFraction,
@@ -1153,7 +1153,8 @@ def main(args):
                      sni_score_species,
                      sni_score_strain,
                      sni_score_cutoff,
-                     argvs.errorRate)
+                     argvs.errorRate,
+                     groups)
             res_df, soi_read_count = aggregate_results.aggregate_taxonomy(*_args)
 
             if acc_list:
