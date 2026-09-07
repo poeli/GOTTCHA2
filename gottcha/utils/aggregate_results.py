@@ -295,7 +295,7 @@ def aggregate_taxonomy(str_df: pd.DataFrame,
             )
             species_lineages = (
                 str_df.drop_duplicates('species_taxid')
-                .set_index('species_taxid')[lineage_cols]
+                .set_index('species_taxid', drop=False)[lineage_cols]
             )
 
             str_df.loc[reassigned, lineage_cols] = species_lineages.loc[
