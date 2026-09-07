@@ -1037,11 +1037,7 @@ def parse_aln_from_bam(
                 n_chunk_read_species_observations += len(linkage_reads)
 
                 for qname in linkage_reads:
-                    if _add_read_species_observation(
-                        read_species,
-                        qname,
-                        species_idx,
-                    ):
+                    if _add_read_species_observation(read_species, qname, species_idx,):
                         n_unique_read_species_observations += 1
 
             # start0 -> one-based STARTPOS. END remains numerically correct.
@@ -1063,11 +1059,7 @@ def parse_aln_from_bam(
         read_degree_hist,
         n_multi_species_reads,
         n_excluded_hyperambiguous_reads,
-    ) = _build_species_link_support(
-        read_species,
-        len(idx_to_species),
-        max_link_species_per_read=max_link_species_per_read,
-    )
+    ) = _build_species_link_support(read_species, len(idx_to_species), max_link_species_per_read=max_link_species_per_read,)
 
     groups, species_to_group, edge_rows, n_component_unions = (
         _finalize_species_groups(
@@ -1125,6 +1117,17 @@ def parse_aln_from_bam(
     write_species_groups(groups, groups_out)
     write_species_links(edge_rows, links_out)
     write_linkage_read_degree_histogram(read_degree_hist, degree_out)
+
+    # write read_species to a file for debugging
+    read_species_out = f"{bam_path}.read_species.tsv"
+    with open(read_species_out, "w", encoding="utf-8") as out:
+        out.write("READ_NAME\tSPECIES_TAXIDS\n")
+        for qname, state in read_species.items():
+            if isinstance(state, int):
+                species_taxids = [idx_to_species[state]]
+            else:
+                species_taxids = [idx_to_species[idx] for idx in sorted(state)]
+            out.write(f"{qname}\t{','.join(species_taxids)}\n")
 
     logging.info("Species groups written to %s", groups_out)
     logging.info("Species-link diagnostics written to %s", links_out)
