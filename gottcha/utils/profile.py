@@ -1119,7 +1119,7 @@ def main(args):
 
         if Path(bamfile).exists() and Path(f"{bamfile}.bai").exists():
             print_message("Processing alignments...", argvs.silent, begin_t, logfile)
-            (ref_chunk_results, groups) = process_bam.parse_aln_from_bam(
+            (ref_chunk_results) = process_bam.parse_aln_from_bam(
                 bam_path=bamfile,
                 processes=argvs.threads,
                 min_frac=argvs.matchFraction,
@@ -1141,6 +1141,8 @@ def main(args):
             if not tol_read_count:
                 print_message("No qualified alignments found. Stopping.", argvs.silent, begin_t, logfile)
                 sys.exit(0)
+
+            groups = {}
 
             # aggregate the results
             _args = (str_df,
