@@ -380,6 +380,7 @@ def quick_concat(archive_path: Union[str, Path],
     Returns:
         Tuple of (concatenated content as bytes, list of processed files, list of skipped files)
     """
+    filenames = set(filenames)  # remove duplicates
     with FileArchive(archive_path, 'r') as archive:
         result, processed, skipped = archive.concat(filenames, separator=separator, skip_missing=skip_missing)
         
