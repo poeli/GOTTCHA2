@@ -269,7 +269,7 @@ def aggregate_taxonomy(str_df: pd.DataFrame,
 
     # reassigning strains by species if groups are provided
     if groups:
-        species_depth = str_df.groupby('species_taxid', sort=False)['DEPTH'].sum()
+        species_depth = str_df.groupby('species_taxid', sort=False)[abu_col].sum()
         representative_by_species = {}
 
         for species_taxids in groups.values():

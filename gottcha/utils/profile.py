@@ -20,6 +20,7 @@ try:
     import ont_utils
     import read_mapping
     import aggregate_results
+    import reciprocal_graph as rg
     import extract_reads
     import gottcha.utils.prefilter as prefilter
     import sig_archive
@@ -35,6 +36,7 @@ except ImportError:
     import gottcha.utils.read_mapping as read_mapping
     import gottcha.utils.extract_reads as extract_reads
     import gottcha.utils.prefilter as prefilter
+    import gottcha.utils.reciprocal_graph as rg
     import gottcha.utils.sig_archive as sig_archive
     from gottcha.gottcha2 import __version__
 
@@ -1101,6 +1103,17 @@ def main(args):
     #     print_message(f" - {tol_chunks_count:,} mapped read chunks processed", argvs.silent, begin_t, logfile)
     #     print_message(f" - {tol_chunks_count-tol_chunks_qualified:,} inconsistent hits removed", argvs.silent, begin_t, logfile)
     #     gc.collect()
+    # preprocess SAM file for nanopore reads
+    
+    if Path(samfile).is_file():
+        print_message("Resolving reciprocal relationships from SAM file...", argvs.silent, begin_t, logfile)
+        reciprocal_groups = rg.reciprocal_relationships_from_sam(samfile)
+        tol_reciprocal_groups = len(reciprocal_groups)
+        print_message(f" - {tol_reciprocal_groups:,} reciprocal groups identified", argvs.silent, begin_t, logfile)
+        if tol_reciprocal_groups == 0:
+            print_message("No reciprocal groups identified from the SAM file. Stopping.", argvs.silent, begin_t, logfile)
+            sys.exit(0)
+        gc.collect()
 
     # processing alignments and generate results
     if not argvs.extractOnly:
@@ -1119,7 +1132,7 @@ def main(args):
 
         if Path(bamfile).exists() and Path(f"{bamfile}.bai").exists():
             print_message("Processing alignments...", argvs.silent, begin_t, logfile)
-            (ref_chunk_results, groups) = process_bam.parse_aln_from_bam(
+            ref_chunk_results = process_bam.parse_aln_from_bam(
                 bam_path=bamfile,
                 processes=argvs.threads,
                 min_frac=argvs.matchFraction,
@@ -1154,7 +1167,7 @@ def main(args):
                      sni_score_strain,
                      sni_score_cutoff,
                      argvs.errorRate,
-                     groups)
+                     reciprocal_groups)
             res_df, soi_read_count = aggregate_results.aggregate_taxonomy(*_args)
 
             if acc_list:
