@@ -21,7 +21,7 @@ try:
     import aggregate_results
     import reciprocal_graph
     import extract_reads
-    import gottcha.utils.prefilter as prefilter
+    import prefilter
     import sig_archive
     from gottcha2 import __version__
 except ImportError:
