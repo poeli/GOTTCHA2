@@ -1013,7 +1013,7 @@ def main(args):
                 print_message(f"ERROR: unable to parse Sylph query output {sylph_query_tsv}: {e}", argvs.silent, begin_t, logfile, errorout=1)
 
             filenames = sig_archive.read_file_list(queried_signatures_file, filename_only=True)
-            print_message(f" - Identified {len(filenames):,} reference genomes.", argvs.silent, begin_t, logfile)
+            print_message(f" - Identified {len(set(filenames)):,} reference genomes.", argvs.silent, begin_t, logfile)
             
             if len(filenames) == 0:
                 print_message("No references identified. GOTTCHA2 stopped.", argvs.silent, begin_t, logfile)
@@ -1125,8 +1125,8 @@ def main(args):
                 min_frac=argvs.matchFraction,
                 min_idt=argvs.matchIdentity,
                 min_alen=argvs.matchLength,
-                include_secondary=False,
-                include_supplementary=direct_ont_flag,
+                include_secondary=True,
+                include_supplementary=True,
                 split_read_flag=split_read_flag
             )
 
