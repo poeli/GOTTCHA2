@@ -3,79 +3,35 @@
 process_bam.py
 
 Compute per-region coverage and consensus-mismatch metrics from a BAM file
-(with .bai index present), without a reference FASTA.
+(with .bai index present), **without** a reference FASTA.
 
-Also identify connected groups of species linked by qualified read mappings.
+Assumptions / notes:
+- Alignments are from minimap2 with `--eqx`, so mismatches are encoded as CIGAR
+  op `X` and matches as `=`.
+- Depth is computed from aligned query bases (CIGAR ops M/= /X). Deletions (D)
+  and refskips (N) do not contribute to depth in this implementation.
+- "mismatches" counts total mismatched aligned bases across all reads (sum of
+  `X`).
+- "pileup_mismatch" counts reference positions where >50% of aligned reads at
+  that position are mismatches (i.e. #positions where X_depth / depth > 0.5).
 
-Example
--------
-read1 -> sp1
-read2 -> sp1, sp2, sp3
-read3 -> sp2, sp4
-read4 -> sp5
-read5 -> sp6, sp7
+Species linkage:
+- Each BAM reference is resolved to a species-level taxid before chunking.
+- During the normal parallel BAM pass, each worker records qualified primary
+  and secondary/supplementary read observations for the chunk's species.
+- Because the BAM is coordinate-sorted, alignments for one read may occur on
+  different references/chunks. Workers therefore do not construct final
+  cross-species groups independently.
+- The parent process merges the read observations into directed links from the
+  primary species to each distinct secondary/supplementary species for that
+  read, counts distinct supporting reads per directed species pair, and then
+  identifies strongly connected components (SCCs).
+- Only SCCs containing more than one species are reported as linked groups.
 
-Produces:
-
-GROUP 1: sp1, sp2, sp3, sp4
-GROUP 2: sp6, sp7
-
-sp5 is omitted because it is not linked to another species.
-
-Species are resolved from reference names using:
-
-    taxid = rname.split('|')[-2]
-    spe_taxid = t.taxid2taxidOnRank(taxid, target_rank="species")
-
-
-Coverage assumptions / notes
-----------------------------
-- Alignments are from minimap2 with --eqx, so mismatches are encoded as
-  CIGAR op X and matches as =.
-- Depth is computed from aligned query bases (M/= /X).
-- Deletions and refskips do not contribute to depth.
-- "mismatches" counts total mismatched aligned bases across all reads.
-- "pileup_mismatch" / CONSENSUS_DIFF counts reference positions where
-  >50% of aligned reads at that position are mismatches.
-
-Species-linkage algorithm
--------------------------
-Species-linkage observations are collected inside the same parallel chunk
-pass used for coverage, so the BAM is not scanned a second time. Each worker
-returns the unique qualified read names whose alignments start in its chunk,
-together with that chunk's species index. The parent merges these observations
-into a unique set of species for each read.
-
-After the BAM pass, linkage is treated as a weighted species graph. For every
-read observed on multiple species, each species pair receives one unit of
-shared-read support. An edge is retained only when both:
-
-    shared_reads >= min_link_reads
-
-and
-    shared_reads / min(reads_species1, reads_species2) >= min_link_fraction
-
-Optionally, --same-genus-only restricts retained edges to species assigned to
-the same genus. --max-link-species-per-read can exclude highly ambiguous reads
-from pair support while still counting them in per-species read totals.
-
-Only retained edges are unioned. Connected components of retained edges form
-the final linked-species groups. Diagnostic TSVs report every observed edge
-and the distribution of species-per-read values.
-
-Parallelization
----------------
-- References are split into fixed-size chunks.
-- Each chunk is processed independently by a worker.
-- Each worker opens the BAM once.
-
-Global group lookups
---------------------
-_GROUPS:
-    species_taxid -> group_id
-
-_GROUP_MEMBERS:
-    group_id -> list of species_taxids
+Parallelization:
+- References are split into fixed-size chunks along their length. Each chunk is
+  processed independently in a worker process.
+- Each worker opens the BAM once (via Pool initializer) for performance.
 """
 
 from __future__ import annotations
@@ -86,6 +42,7 @@ import multiprocessing as mp
 import os
 import sys
 from collections import Counter, defaultdict
+from typing import Counter as CounterType
 from typing import Dict, Iterable, List, Optional, Set, Tuple, Union
 
 import numpy as np
@@ -97,11 +54,7 @@ except ImportError:
     import taxonomy as t
 
 
-# ----------------------------------------------------------------------
-# Globals
-# ----------------------------------------------------------------------
-
-# BAM handle/config for worker processes
+# Global BAM handle and config for worker processes
 _BAM: Optional[pysam.AlignmentFile] = None
 _CFG = {}
 
@@ -117,520 +70,114 @@ _GROUPS: Dict[str, int] = {}
 #   _GROUP_MEMBERS[1] = ["12345", "67890", ...]
 _GROUP_MEMBERS: Dict[int, List[str]] = {}
 
+# A read key distinguishes paired-end mates that share the same QNAME.
+ReadKey = Tuple[str, int]
+DirectedLink = Tuple[str, str]
+ChunkTask = Tuple[str, int, int, Optional[str]]
+ChunkResult = Tuple[List, Optional[str], Set[ReadKey], Set[ReadKey]]
 
-# ----------------------------------------------------------------------
-# Alignment filtering
-# ----------------------------------------------------------------------
 
-def _alignment_filter_reason(
-    aln: pysam.AlignedSegment,
-    bam: pysam.AlignmentFile,
-    cfg: dict,
+def _rname_to_taxid_at_rank(
+    rname: str,
+    target_rank: str,
 ) -> Optional[str]:
-    """
-    Return None if the alignment passes all filters.
-
-    Otherwise return a rejection reason.
-
-    The filtering logic is shared by:
-      1. coverage/mismatch calculation
-      2. species-linkage discovery
-    """
-
-    if aln.is_unmapped:
-        return "unmapped"
-
-    if (not cfg["include_secondary"]) and aln.is_secondary:
-        return "secondary"
-
-    if (not cfg["include_supplementary"]) and aln.is_supplementary:
-        return "supplementary"
-
-    if (not cfg["include_duplicates"]) and aln.is_duplicate:
-        return "duplicate"
-
-    if (not cfg["include_qcfail"]) and aln.is_qcfail:
-        return "qcfail"
-
-    if aln.mapping_quality < cfg["min_mapq"]:
-        return "mapq"
-
-    alen = aln.alen or 0
-
-    if alen <= 0:
-        return "length"
-
-    # --------------------------------------------------------------
-    # Alignment identity
-    # --------------------------------------------------------------
-    min_idt = cfg["min_idt"]
-
-    if min_idt > 0.0 and aln.has_tag("NM"):
-        nm = aln.get_tag("NM")
-        identity = 1.0 - (nm / alen)
-
-        if identity < min_idt:
-            return "identity"
-
-    # --------------------------------------------------------------
-    # Fraction of query/reference represented by alignment
-    # --------------------------------------------------------------
-    min_frac = cfg["min_frac"]
-
-    if min_frac > 0.0:
-
-        query_length = aln.query_length
-
-        if not query_length:
-            # Recover length for hard-clipped reads from CIGAR.
-            #
-            # CIGAR:
-            # 0=M, 1=I, 4=S, 5=H, 7==, 8=X
-            cig = aln.cigartuples or ()
-
-            query_length = sum(
-                length
-                for op, length in cig
-                if op in (0, 1, 4, 5, 7, 8)
-            )
-
-        if query_length <= 0:
-            return "fraction"
-
-        reference_length = bam.lengths[aln.reference_id]
-
-        if (
-            alen / query_length < min_frac
-            and
-            alen / reference_length < min_frac
-        ):
-            return "fraction"
-
-    # --------------------------------------------------------------
-    # Minimum aligned length
-    # --------------------------------------------------------------
-    min_alen = cfg["min_alen"]
-
-    if min_alen > 0 and alen < min_alen:
-        return "length"
-
-    return None
-
-
-def _rname_to_species_taxid(rname: str) -> Optional[str]:
-    """Convert a BAM reference name to a species-level taxid."""
+    """Convert a BAM reference name to a taxid at the requested rank."""
 
     try:
         taxid = rname.split("|")[-2]
-        spe_taxid = t.taxid2taxidOnRank(taxid, target_rank="species")
-        if spe_taxid is None:
+        resolved = t.taxid2taxidOnRank(taxid, target_rank=target_rank)
+        if resolved in (None, "", "0", "unknown"):
             return None
-        spe_taxid = str(spe_taxid)
-        if not spe_taxid or spe_taxid == "0":
-            return None
-        return spe_taxid
+        return str(resolved)
     except Exception as exc:
         logging.debug(
-            "Unable to resolve species taxid from reference %s: %s",
+            "Unable to resolve taxid at rank %s from reference %s: %s",
+            target_rank,
             rname,
             exc,
         )
         return None
 
 
-def _taxid_to_rank_taxid(taxid: str, target_rank: str) -> Optional[str]:
-    """Resolve a taxid to a requested rank, returning a normalized string."""
+def _taxid_sort_key(taxid: str) -> Tuple[int, Union[int, str]]:
+    """Sort numeric taxids numerically and other identifiers lexicographically."""
 
     try:
-        rank_taxid = t.taxid2taxidOnRank(taxid, target_rank=target_rank)
-        if rank_taxid is None:
-            return None
-        rank_taxid = str(rank_taxid)
-        if not rank_taxid or rank_taxid == "0":
-            return None
-        return rank_taxid
-    except Exception as exc:
-        logging.debug(
-            "Unable to resolve taxid %s to rank %s: %s",
-            taxid,
-            target_rank,
-            exc,
-        )
+        return (0, int(taxid))
+    except (TypeError, ValueError):
+        return (1, str(taxid))
+
+
+def _read_key(aln: pysam.AlignedSegment) -> Optional[ReadKey]:
+    """Return a read identifier that keeps paired-end mates separate."""
+
+    qname = aln.query_name
+    if not qname:
         return None
 
+    if aln.is_read1:
+        mate = 1
+    elif aln.is_read2:
+        mate = 2
+    else:
+        mate = 0
 
-def _taxid_sort_key(taxid: str):
-    """Sort numeric taxids numerically when possible."""
-
-    try:
-        return 0, int(taxid)
-    except (TypeError, ValueError):
-        return 1, str(taxid)
-
-
-# ----------------------------------------------------------------------
-# Species linkage helpers
-# ----------------------------------------------------------------------
-
-ReadSpeciesState = Union[int, Set[int]]
+    return (qname, mate)
 
 
-def _add_read_species_observation(
-    read_species: Dict[str, ReadSpeciesState],
-    qname: str,
-    species_idx: int,
-) -> bool:
+def _match_filter_reason(
+    aln: pysam.AlignedSegment,
+    bam: pysam.AlignmentFile,
+    rname: str,
+    min_frac: float,
+    min_idt: float,
+    min_alen: int,
+) -> Optional[str]:
     """
-    Add one read->species observation, deduplicating globally across chunks.
+    Return the matching-threshold rejection reason, or None when qualified.
 
-    To reduce memory for the common case, a read mapping to exactly one species
-    is stored as a single integer. It is promoted to a set only after a second
-    distinct species is observed.
-
-    Returns True only when this is a new species observation for the read.
+    This contains the same identity/fraction/aligned-length criteria used by
+    the existing chunk parser. Role-specific inclusion of secondary and
+    supplementary alignments is intentionally handled outside this helper.
     """
 
-    state = read_species.get(qname)
+    alen = aln.alen or 0
 
-    if state is None:
-        read_species[qname] = species_idx
-        return True
+    if min_idt > 0.0 and aln.has_tag("NM"):
+        if alen <= 0:
+            return "identity"
+        mm_idt = 1.0 - (aln.get_tag("NM") / alen)
+        if min_idt > mm_idt:
+            return "identity"
 
-    if isinstance(state, int):
-        if state == species_idx:
-            return False
-        read_species[qname] = {state, species_idx}
-        return True
-
-    if species_idx in state:
-        return False
-
-    state.add(species_idx)
-    return True
-
-
-def _build_species_link_support(
-    read_species: Dict[str, ReadSpeciesState],
-    n_species: int,
-    max_link_species_per_read: int = 0,
-) -> Tuple[List[int], Dict[Tuple[int, int], int], Counter, int, int]:
-    """
-    Convert per-read species observations into weighted pair support.
-
-    species_read_counts counts every distinct read observed on each species.
-    Pair support is counted once per read per species pair. If
-    max_link_species_per_read > 0, reads mapping to more than that many species
-    are excluded from pair support but remain in species_read_counts and the
-    degree histogram.
-
-    Returns
-    -------
-    species_read_counts
-        Unique qualified reads observed for each species.
-    edge_read_counts
-        (species_idx1, species_idx2) -> number of shared reads.
-    read_degree_hist
-        number_of_species_per_read -> number_of_reads.
-    n_multi_species_reads
-        Number of reads observed on >=2 species.
-    n_excluded_hyperambiguous_reads
-        Multi-species reads excluded from edge support by the maximum-degree
-        filter.
-    """
-
-    species_read_counts = [0] * n_species
-    edge_read_counts: Dict[Tuple[int, int], int] = defaultdict(int)
-    read_degree_hist: Counter = Counter()
-    n_multi_species_reads = 0
-    n_excluded_hyperambiguous_reads = 0
-
-    for state in read_species.values():
-        if isinstance(state, int):
-            species = (state,)
-        else:
-            species = tuple(sorted(state))
-
-        degree = len(species)
-        read_degree_hist[degree] += 1
-
-        for species_idx in species:
-            species_read_counts[species_idx] += 1
-
-        if degree < 2:
-            continue
-
-        n_multi_species_reads += 1
-
-        if max_link_species_per_read > 0 and degree > max_link_species_per_read:
-            n_excluded_hyperambiguous_reads += 1
-            continue
-
-        for i in range(degree - 1):
-            a = species[i]
-            for j in range(i + 1, degree):
-                b = species[j]
-                edge_read_counts[(a, b)] += 1
-
-    return (
-        species_read_counts,
-        edge_read_counts,
-        read_degree_hist,
-        n_multi_species_reads,
-        n_excluded_hyperambiguous_reads,
-    )
-
-
-def _finalize_species_groups(
-    idx_to_species: List[str],
-    idx_to_genus: List[Optional[str]],
-    species_read_counts: List[int],
-    edge_read_counts: Dict[Tuple[int, int], int],
-    min_link_reads: int,
-    min_link_fraction: float,
-    same_genus_only: bool,
-) -> Tuple[
-    Dict[int, List[str]],
-    Dict[str, int],
-    List[Tuple],
-    int,
-]:
-    """
-    Filter weighted species edges and construct deterministic components.
-
-    link_fraction is a containment-style measure:
-
-        shared_reads / min(reads_species1, reads_species2)
-
-    A species pair is unioned only when it passes min_link_reads,
-    min_link_fraction, and (optionally) the same-genus requirement.
-    """
-
-    n_species = len(idx_to_species)
-    parent = list(range(n_species))
-    component_size = [1] * n_species
-
-    def find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    def union(a: int, b: int) -> bool:
-        root_a = find(a)
-        root_b = find(b)
-
-        if root_a == root_b:
-            return False
-
-        if component_size[root_a] < component_size[root_b]:
-            root_a, root_b = root_b, root_a
-
-        parent[root_b] = root_a
-        component_size[root_a] += component_size[root_b]
-        return True
-
-    # Store edge diagnostics before assigning final group IDs.
-    edge_rows_raw = []
-    n_component_unions = 0
-
-    for (idx1, idx2), shared_reads in edge_read_counts.items():
-        reads1 = species_read_counts[idx1]
-        reads2 = species_read_counts[idx2]
-        denominator = min(reads1, reads2)
-        link_fraction = shared_reads / denominator if denominator > 0 else 0.0
-
-        genus1 = idx_to_genus[idx1]
-        genus2 = idx_to_genus[idx2]
-        same_genus = (
-            genus1 is not None
-            and genus2 is not None
-            and genus1 == genus2
-        )
-
-        pass_min_reads = shared_reads >= min_link_reads
-        pass_min_fraction = link_fraction >= min_link_fraction
-        pass_genus = (not same_genus_only) or same_genus
-        retained = pass_min_reads and pass_min_fraction and pass_genus
-
-        if retained and union(idx1, idx2):
-            n_component_unions += 1
-
-        edge_rows_raw.append(
-            (
-                idx1,
-                idx2,
-                shared_reads,
-                reads1,
-                reads2,
-                link_fraction,
-                genus1,
-                genus2,
-                same_genus,
-                pass_min_reads,
-                pass_min_fraction,
-                pass_genus,
-                retained,
-            )
-        )
-
-    components: Dict[int, List[str]] = defaultdict(list)
-
-    for idx, species_taxid in enumerate(idx_to_species):
-        components[find(idx)].append(species_taxid)
-
-    linked_components: List[List[str]] = []
-
-    for members in components.values():
-        if len(members) < 2:
-            continue
-        members.sort(key=_taxid_sort_key)
-        linked_components.append(members)
-
-    linked_components.sort(
-        key=lambda members: _taxid_sort_key(members[0])
-    )
-
-    groups: Dict[int, List[str]] = {}
-    species_to_group: Dict[str, int] = {}
-
-    for group_id, members in enumerate(linked_components, start=1):
-        groups[group_id] = members
-        for species_taxid in members:
-            species_to_group[species_taxid] = group_id
-
-    edge_rows: List[Tuple] = []
-
-    for row in edge_rows_raw:
-        (
-            idx1,
-            idx2,
-            shared_reads,
-            reads1,
-            reads2,
-            link_fraction,
-            genus1,
-            genus2,
-            same_genus,
-            pass_min_reads,
-            pass_min_fraction,
-            pass_genus,
-            retained,
-        ) = row
-
-        species1 = idx_to_species[idx1]
-        species2 = idx_to_species[idx2]
-        group1 = species_to_group.get(species1)
-        group2 = species_to_group.get(species2)
-        same_final_group = (
-            group1 is not None
-            and group2 is not None
-            and group1 == group2
-        )
-
-        edge_rows.append(
-            (
-                species1,
-                species2,
-                shared_reads,
-                reads1,
-                reads2,
-                link_fraction,
-                genus1,
-                genus2,
-                same_genus,
-                pass_min_reads,
-                pass_min_fraction,
-                pass_genus,
-                retained,
-                group1,
-                group2,
-                same_final_group,
-            )
-        )
-
-    edge_rows.sort(
-        key=lambda row: (
-            not row[12],          # retained edges first
-            -row[2],              # then strongest shared-read support
-            -row[5],              # then strongest link fraction
-            _taxid_sort_key(row[0]),
-            _taxid_sort_key(row[1]),
-        )
-    )
-
-    return groups, species_to_group, edge_rows, n_component_unions
-
-
-def write_species_groups(
-    groups: Dict[int, List[str]],
-    out_path: str,
-) -> None:
-    """Write connected species groups as TSV."""
-
-    with open(out_path, "w", encoding="utf-8") as out:
-        out.write("GROUP_ID\tN_SPECIES\tSPECIES_TAXIDS\n")
-
-        for group_id, species in groups.items():
-            out.write(
-                f"{group_id}\t"
-                f"{len(species)}\t"
-                f"{','.join(species)}\n"
+    if min_frac > 0.0:
+        query_length = aln.query_length
+        if not query_length:
+            # For hard clips, query_length can be 0; recover it from CIGAR.
+            query_length = sum(
+                length
+                for op, length in (aln.cigartuples or ())
+                if op in (0, 1, 4, 5, 7, 8)  # M/I/S/H/=/X
             )
 
+        if query_length <= 0:
+            return "fraction"
 
-def write_species_links(
-    edge_rows: List[Tuple],
-    out_path: str,
-) -> None:
-    """Write weighted species-link diagnostics as TSV."""
+        reference_length = bam.get_reference_length(rname)
+        if reference_length <= 0:
+            return "fraction"
 
-    header = [
-        "SPECIES1",
-        "SPECIES2",
-        "SHARED_READS",
-        "READS_SPECIES1",
-        "READS_SPECIES2",
-        "LINK_FRACTION",
-        "GENUS1",
-        "GENUS2",
-        "SAME_GENUS",
-        "PASS_MIN_READS",
-        "PASS_MIN_FRACTION",
-        "PASS_GENUS",
-        "RETAINED",
-        "GROUP1",
-        "GROUP2",
-        "SAME_FINAL_GROUP",
-    ]
+        if (
+            (alen / query_length) < min_frac
+            and (alen / reference_length) < min_frac
+        ):
+            return "fraction"
 
-    with open(out_path, "w", encoding="utf-8") as out:
-        out.write("\t".join(header) + "\n")
+    if min_alen > 0 and alen < min_alen:
+        return "length"
 
-        for row in edge_rows:
-            values = list(row)
-            values[5] = f"{values[5]:.8f}"
-            values[6] = "" if values[6] is None else values[6]
-            values[7] = "" if values[7] is None else values[7]
-            values[13] = "" if values[13] is None else values[13]
-            values[14] = "" if values[14] is None else values[14]
-            out.write("\t".join(map(str, values)) + "\n")
+    return None
 
-
-def write_linkage_read_degree_histogram(
-    read_degree_hist: Counter,
-    out_path: str,
-) -> None:
-    """Write the number of distinct mapped species observed per read."""
-
-    with open(out_path, "w", encoding="utf-8") as out:
-        out.write("N_SPECIES_PER_READ\tN_READS\n")
-        for degree in sorted(read_degree_hist):
-            out.write(f"{degree}\t{read_degree_hist[degree]}\n")
-
-
-# ----------------------------------------------------------------------
-# Multiprocessing worker
-# ----------------------------------------------------------------------
 
 def _init_worker(
     bam_path: str,
@@ -645,20 +192,10 @@ def _init_worker(
     include_qcfail: bool,
     split_read_flag: Optional[bool] = False,
 ) -> None:
-    """
-    Initializer for each worker process.
-
-    Open BAM once and stash filters.
-    """
+    """Initializer for each worker process: open BAM once and stash filters."""
 
     global _BAM, _CFG
-
-    _BAM = pysam.AlignmentFile(
-        bam_path,
-        "rb",
-        threads=htslib_threads,
-    )
-
+    _BAM = pysam.AlignmentFile(bam_path, "rb", threads=htslib_threads)
     _CFG = {
         "min_mapq": min_mapq,
         "min_frac": min_frac,
@@ -672,33 +209,58 @@ def _init_worker(
     }
 
 
-def _process_chunk(task: Tuple[str, int, int, Optional[int]]) -> Tuple[List, Optional[int], List[str]]:
+def _process_chunk(task: ChunkTask) -> ChunkResult:
     """
-    Process one (rname, start0, end0, species_idx) chunk.
+    Process one ``(rname, start0, end0, species_taxid)`` chunk.
 
-    In addition to the coverage/mismatch metrics, return the qualified read
-    names whose alignments START in this chunk. The parent process combines
-    these observations across chunks/references to build the linked-species
-    connected components.
+    Returns
+    -------
+    metrics
+        The existing per-chunk coverage/mismatch result row.
+    species_taxid
+        Species-level taxid for this reference, or None if unresolved.
+    primary_reads
+        Unique qualified primary read keys whose alignments START in this
+        chunk.
+    alternative_reads
+        Unique qualified secondary/supplementary read keys whose alignments
+        START in this chunk.
 
-    Returning only alignments that start in this chunk prevents an alignment
-    spanning a chunk boundary from being emitted more than once.
+    Notes
+    -----
+    Linkage observations are emitted only by the chunk that owns an alignment
+    (the alignment starts in that chunk), preventing duplicate observations for
+    alignments that span chunk boundaries.
+
+    Secondary/supplementary alignments are always considered for linkage. The
+    existing ``include_secondary`` / ``include_supplementary`` settings retain
+    their original meaning for coverage/mismatch accumulation only.
     """
+
     global _BAM, _CFG
     assert _BAM is not None, "Worker BAM handle not initialized"
 
-    rname, start0, end0, species_idx = task
+    rname, start0, end0, species_taxid = task
     L = end0 - start0
-
     if L <= 0:
         metrics = [rname, start0, end0, 0, 0, 0, 0, 0, 0, 0, 0]
-        return metrics, species_idx, []
+        return metrics, species_taxid, set(), set()
 
     # Difference arrays (signed) so we can do O(segments) updates and O(L)
-    # cumulative sums.
+    # cumsums.
+    # depth[pos] = #reads with an aligned base at that position (M/= /X)
+    # mm[pos] = #reads with CIGAR X at that position
     depth_diff = np.zeros(L + 1, dtype=np.int32)
     mm_diff = np.zeros(L + 1, dtype=np.int32)
 
+    min_mapq = _CFG["min_mapq"]
+    min_frac = _CFG["min_frac"]
+    min_idt = _CFG["min_idt"]
+    inc_sec = _CFG["include_secondary"]
+    inc_sup = _CFG["include_supplementary"]
+    inc_dup = _CFG["include_duplicates"]
+    inc_qcf = _CFG["include_qcfail"]
+    min_alen = _CFG["min_alen"]
     split_read_flag = _CFG["split_read_flag"]
 
     numreads = 0
@@ -707,43 +269,73 @@ def _process_chunk(task: Tuple[str, int, int, Optional[int]]) -> Tuple[List, Opt
     invalid_alns = 0
     bam = _BAM
 
-    # A chunk corresponds to one reference, hence one species_idx. We only
-    # need unique read names for this species within this chunk.
-    linkage_reads = set()
+    # One chunk belongs to one BAM reference/species. Sets deduplicate repeated
+    # alignments of the same read to that species within this chunk.
+    primary_reads: Set[ReadKey] = set()
+    alternative_reads: Set[ReadKey] = set()
 
-    # Iterate alignments overlapping this region.
+    # Iterate reads overlapping this region.
     for aln in bam.fetch(rname, start0, end0):
-        # Apply filters to ALL alignments contributing coverage to this chunk,
-        # including alignments that start in the preceding chunk.
-        filter_reason = _alignment_filter_reason(aln, bam, _CFG)
-
-        if filter_reason is not None:
-            # Count threshold failures once, in the chunk where the alignment
-            # starts.
-            if (
-                aln.reference_start >= start0
-                and filter_reason in {"identity", "fraction", "length"}
-            ):
-                invalid_alns += 1
+        if aln.is_unmapped:
+            continue
+        if (not inc_dup) and aln.is_duplicate:
+            continue
+        if (not inc_qcf) and aln.is_qcfail:
+            continue
+        if aln.mapping_quality < min_mapq:
             continue
 
-        # An alignment overlapping multiple chunks contributes depth to each
-        # overlapping chunk, but NUMREADS/READLENGTH and linkage must be
-        # recorded exactly once.
+        # Only the chunk in which the alignment begins should emit a linkage
+        # observation or count it as a new alignment/read.
         owns_alignment = aln.reference_start >= start0
 
+        match_filter_reason: Optional[str] = None
         if owns_alignment:
-            if species_idx is not None and aln.query_name:
-                linkage_reads.add(aln.query_name)
+            match_filter_reason = _match_filter_reason(
+                aln,
+                bam,
+                rname,
+                min_frac,
+                min_idt,
+                min_alen,
+            )
 
+            # Linkage qualification is independent of whether secondary or
+            # supplementary alignments are included in coverage metrics.
+            if match_filter_reason is None and species_taxid is not None:
+                key = _read_key(aln)
+                if key is not None:
+                    if aln.is_secondary or aln.is_supplementary:
+                        alternative_reads.add(key)
+                    else:
+                        primary_reads.add(key)
+
+        # Preserve the existing role-specific coverage behavior.
+        if (not inc_sec) and aln.is_secondary:
+            continue
+        if (not inc_sup) and aln.is_supplementary:
+            continue
+
+        # The original implementation evaluates min-idt/min-frac/min-alen only
+        # in the chunk where the alignment starts. Preserve that behavior for
+        # coverage/mismatch aggregation.
+        if owns_alignment:
+            if match_filter_reason is not None:
+                invalid_alns += 1
+                continue
+
+            # If split_read_flag is set, only count reads with ZC tag (the first
+            # chunked reads) towards numreads.
             if split_read_flag:
                 if aln.has_tag("ZC"):
                     numreads += 1
             else:
-                if not aln.is_secondary and not aln.is_supplementary:
+                if aln.is_secondary or aln.is_supplementary:
+                    pass
+                else:
                     numreads += 1
 
-            # Preserve the original use of aligned length for READLENGTH.
+            # Count aligned read length for mean-depth/SNI calculations.
             readlength += aln.alen
 
         cig = aln.cigartuples
@@ -765,10 +357,12 @@ def _process_chunk(task: Tuple[str, int, int, Optional[int]]) -> Tuple[List, Opt
 
                 if op == 8:  # X mismatches
                     seg_s = ref_pos
-                    seg_e = ref_pos + length
+                    seg_e = ref_pos + length  # exclusive
                     if seg_e > start0 and seg_s < end0:
-                        seg_s = max(seg_s, start0)
-                        seg_e = min(seg_e, end0)
+                        if seg_s < start0:
+                            seg_s = start0
+                        if seg_e > end0:
+                            seg_e = end0
                         mm_diff[seg_s - start0] += 1
                         mm_diff[seg_e - start0] -= 1
 
@@ -777,20 +371,22 @@ def _process_chunk(task: Tuple[str, int, int, Optional[int]]) -> Tuple[List, Opt
             elif op in (2, 3):  # D or N: consumes reference, not query
                 if block_start is not None:
                     seg_s = block_start
-                    seg_e = ref_pos
+                    seg_e = ref_pos  # exclusive
                     if seg_e > start0 and seg_s < end0:
-                        seg_s = max(seg_s, start0)
-                        seg_e = min(seg_e, end0)
+                        if seg_s < start0:
+                            seg_s = start0
+                        if seg_e > end0:
+                            seg_e = end0
                         depth_diff[seg_s - start0] += 1
                         depth_diff[seg_e - start0] -= 1
                         indels += length
                     block_start = None
-
                 ref_pos += length
 
             else:
-                # I/S/H/P do not consume reference and do not break the
-                # contiguous reference block.
+                # I/S/H/P: does not consume reference; does not affect ref_pos.
+                # We do not break the block on insertions/softclips because
+                # reference positions remain contiguous.
                 continue
 
         # Close any remaining aligned block.
@@ -798,8 +394,10 @@ def _process_chunk(task: Tuple[str, int, int, Optional[int]]) -> Tuple[List, Opt
             seg_s = block_start
             seg_e = ref_pos
             if seg_e > start0 and seg_s < end0:
-                seg_s = max(seg_s, start0)
-                seg_e = min(seg_e, end0)
+                if seg_s < start0:
+                    seg_s = start0
+                if seg_e > end0:
+                    seg_e = end0
                 depth_diff[seg_s - start0] += 1
                 depth_diff[seg_e - start0] -= 1
 
@@ -810,16 +408,12 @@ def _process_chunk(task: Tuple[str, int, int, Optional[int]]) -> Tuple[List, Opt
     covbases = int(np.count_nonzero(depth))
     mismatches_total = int(mm.sum())
     mapped_bases = int(depth.sum()) + indels
-
-    # mm / depth > 0.5  <=>  2*mm > depth
-    consensus_diff = int(
-        np.count_nonzero((depth > 0) & (mm * 2 > depth))
-    )
+    consensus_diff = int(np.count_nonzero((depth > 0) & (mm * 2 > depth)))
 
     logging.debug(
-        "Processed %s: %d reads, %d covbases, %d mismatches, "
-        "%d consensus_diff, %d indels, %d mapped_bases, %d invalid_alns, "
-        "%d linkage reads",
+        "Processed %s: %d reads, %d covbases, %d mismatches, %d consensus_diff, "
+        "%d indels, %d mapped_bases, %d invalid_alns, %d primary linkage reads, "
+        "%d alternative linkage reads",
         rname,
         numreads,
         covbases,
@@ -828,7 +422,8 @@ def _process_chunk(task: Tuple[str, int, int, Optional[int]]) -> Tuple[List, Opt
         indels,
         mapped_bases,
         invalid_alns,
-        len(linkage_reads),
+        len(primary_reads),
+        len(alternative_reads),
     )
 
     metrics = [
@@ -844,25 +439,230 @@ def _process_chunk(task: Tuple[str, int, int, Optional[int]]) -> Tuple[List, Opt
         invalid_alns,
         readlength,
     ]
-
-    return metrics, species_idx, list(linkage_reads)
+    return metrics, species_taxid, primary_reads, alternative_reads
 
 
 def _iter_tasks(
     references: List[str],
     lengths: List[int],
-    reference_species_idx: List[Optional[int]],
+    species_taxids: List[Optional[str]],
     chunk_size: int,
-) -> Iterable[Tuple[str, int, int, Optional[int]]]:
-    for rname, rlen, species_idx in zip(
-        references, lengths, reference_species_idx
-    ):
+) -> Iterable[ChunkTask]:
+    """Yield chunk tasks with the pre-resolved species taxid for each reference."""
+
+    for rname, rlen, species_taxid in zip(references, lengths, species_taxids):
         if rlen <= 0:
             continue
         cs = rlen if chunk_size <= 0 else chunk_size
         for start0 in range(0, rlen, cs):
             end0 = min(start0 + cs, rlen)
-            yield (rname, start0, end0, species_idx)
+            yield (rname, start0, end0, species_taxid)
+
+
+def _add_directed_link_for_read(
+    read_key: ReadKey,
+    primary_species: str,
+    alternative_species: str,
+    link_counts: CounterType[DirectedLink],
+    linked_targets_by_read: Dict[ReadKey, Set[str]],
+) -> None:
+    """Add one distinct-read support observation for a directed species link."""
+
+    if primary_species == alternative_species:
+        return
+
+    linked_targets = linked_targets_by_read.setdefault(read_key, set())
+    if alternative_species in linked_targets:
+        return
+
+    linked_targets.add(alternative_species)
+    link_counts[(primary_species, alternative_species)] += 1
+
+
+def _merge_linkage_observations(
+    species_taxid: Optional[str],
+    primary_reads: Set[ReadKey],
+    alternative_reads: Set[ReadKey],
+    primary_by_read: Dict[ReadKey, Optional[str]],
+    pending_alternatives_by_read: Dict[ReadKey, Set[str]],
+    linked_targets_by_read: Dict[ReadKey, Set[str]],
+    link_counts: CounterType[DirectedLink],
+) -> int:
+    """
+    Merge one worker's read-role observations into global directed link counts.
+
+    Returns the number of read keys found to have conflicting primary species.
+    Such reads are excluded from linkage rather than allowing an ambiguous
+    primary assignment to create spurious directed edges.
+    """
+
+    if species_taxid is None:
+        return 0
+
+    conflicting_primary_reads = 0
+
+    for read_key in primary_reads:
+        if read_key not in primary_by_read:
+            primary_by_read[read_key] = species_taxid
+
+            pending = pending_alternatives_by_read.pop(read_key, None)
+            if pending:
+                for alternative_species in pending:
+                    _add_directed_link_for_read(
+                        read_key,
+                        species_taxid,
+                        alternative_species,
+                        link_counts,
+                        linked_targets_by_read,
+                    )
+            continue
+
+        previous_primary = primary_by_read[read_key]
+
+        # None marks a read already known to have conflicting primaries.
+        if previous_primary is None:
+            continue
+
+        if previous_primary == species_taxid:
+            continue
+
+        # Conflicting primaries should be rare in a well-formed BAM. If one is
+        # discovered after links were already emitted, retract those supports.
+        for alternative_species in linked_targets_by_read.pop(read_key, set()):
+            edge = (previous_primary, alternative_species)
+            link_counts[edge] -= 1
+            if link_counts[edge] <= 0:
+                del link_counts[edge]
+
+        pending_alternatives_by_read.pop(read_key, None)
+        primary_by_read[read_key] = None
+        conflicting_primary_reads += 1
+
+    for read_key in alternative_reads:
+        if read_key not in primary_by_read:
+            pending_alternatives_by_read[read_key].add(species_taxid)
+            continue
+
+        primary_species = primary_by_read[read_key]
+        if primary_species is None:
+            continue
+
+        _add_directed_link_for_read(
+            read_key,
+            primary_species,
+            species_taxid,
+            link_counts,
+            linked_targets_by_read,
+        )
+
+    return conflicting_primary_reads
+
+
+def _strongly_connected_components(
+    link_counts: CounterType[DirectedLink],
+) -> List[List[str]]:
+    """Return deterministic SCCs from directed links using iterative Kosaraju."""
+
+    graph: Dict[str, Set[str]] = defaultdict(set)
+    reverse_graph: Dict[str, Set[str]] = defaultdict(set)
+    nodes: Set[str] = set()
+
+    for (source, target), count in link_counts.items():
+        if count <= 0 or source == target:
+            continue
+        graph[source].add(target)
+        reverse_graph[target].add(source)
+        nodes.add(source)
+        nodes.add(target)
+
+    if not nodes:
+        return []
+
+    # First pass: finishing order on the original directed graph.
+    visited: Set[str] = set()
+    finish_order: List[str] = []
+
+    for start in sorted(nodes, key=_taxid_sort_key):
+        if start in visited:
+            continue
+
+        stack: List[Tuple[str, bool]] = [(start, False)]
+        while stack:
+            node, expanded = stack.pop()
+
+            if expanded:
+                finish_order.append(node)
+                continue
+
+            if node in visited:
+                continue
+
+            visited.add(node)
+            stack.append((node, True))
+
+            # Reverse sort because stack is LIFO; this keeps traversal stable.
+            for neighbor in sorted(
+                graph.get(node, ()),
+                key=_taxid_sort_key,
+                reverse=True,
+            ):
+                if neighbor not in visited:
+                    stack.append((neighbor, False))
+
+    # Second pass: traverse the transpose in reverse finishing order.
+    visited.clear()
+    components: List[List[str]] = []
+
+    for start in reversed(finish_order):
+        if start in visited:
+            continue
+
+        component: List[str] = []
+        stack = [start]
+        visited.add(start)
+
+        while stack:
+            node = stack.pop()
+            component.append(node)
+
+            for neighbor in reverse_graph.get(node, ()):
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    stack.append(neighbor)
+
+        component.sort(key=_taxid_sort_key)
+        components.append(component)
+
+    components.sort(
+        key=lambda members: tuple(_taxid_sort_key(taxid) for taxid in members)
+    )
+    return components
+
+
+def _build_species_groups(
+    link_counts: CounterType[DirectedLink],
+) -> Dict[int, List[str]]:
+    """Build linked groups from SCCs and populate the module-level lookups."""
+
+    global _GROUPS, _GROUP_MEMBERS
+
+    _GROUPS.clear()
+    _GROUP_MEMBERS.clear()
+
+    linked_components = [
+        component
+        for component in _strongly_connected_components(link_counts)
+        if len(component) > 1
+    ]
+
+    groups: Dict[int, List[str]] = {}
+    for group_id, members in enumerate(linked_components, start=1):
+        groups[group_id] = members
+        _GROUP_MEMBERS[group_id] = list(members)
+        for species_taxid in members:
+            _GROUPS[species_taxid] = group_id
+
+    return groups
 
 
 def parse_aln_from_bam(
@@ -880,33 +680,22 @@ def parse_aln_from_bam(
     include_duplicates: Optional[bool] = False,
     include_qcfail: Optional[bool] = False,
     split_read_flag: Optional[bool] = False,
-    min_link_reads: int = 3,
-    min_link_fraction: float = 0.01,
-    same_genus_only: bool = True,
-    max_link_species_per_read: int = 0,
-) -> List[List]:
+) -> Union[int, Tuple[List[List], Dict[int, List[str]]]]:
     """
-    Process coverage and construct weighted linked-species groups in one BAM pass.
+    Parse BAM chunks and identify strongly connected species groups.
 
-    Workers emit unique qualified read names for their reference chunks. The
-    parent merges those observations into a unique species set per read. After
-    the BAM pass, shared-read support is counted for every species pair and
-    only sufficiently supported edges are unioned.
+    On success returns ``(ref_chunk_results, groups)``. The existing per-chunk
+    result rows are unchanged; ``groups`` maps group id to species-level taxids.
     """
-    global _GROUPS, _GROUP_MEMBERS
 
-    if min_link_reads < 1:
-        raise ValueError("min_link_reads must be >= 1")
-    if not 0.0 <= min_link_fraction <= 1.0:
-        raise ValueError("min_link_fraction must be between 0 and 1")
-    if max_link_species_per_read < 0:
-        raise ValueError("max_link_species_per_read must be >= 0")
+    _GROUPS.clear()
+    _GROUP_MEMBERS.clear()
 
     if not os.path.exists(bam_path):
         print(f"ERROR: BAM not found: {bam_path}", file=sys.stderr)
-        return []
+        return 2
 
-    # Open BAM in the main process to validate the index and obtain references.
+    # Open BAM in main process to validate index and obtain reference lengths.
     try:
         with pysam.AlignmentFile(bam_path, "rb") as bam:
             if not bam.has_index():
@@ -915,12 +704,27 @@ def parse_aln_from_bam(
                     "Pysam requires an index.",
                     file=sys.stderr,
                 )
-                return []
+                return 2
             references = list(bam.references)
             lengths = list(bam.lengths)
     except Exception as exc:
         print(f"ERROR: Failed to open BAM: {exc}", file=sys.stderr)
-        return []
+        return 2
+
+    # Resolve each reference once in the main process. This avoids repeated
+    # taxonomy traversal in workers/chunks and works cleanly with spawn-based
+    # multiprocessing as well as fork-based multiprocessing.
+    species_taxids = [
+        _rname_to_taxid_at_rank(rname, target_rank="species")
+        for rname in references
+    ]
+    unresolved_references = sum(taxid is None for taxid in species_taxids)
+    if unresolved_references:
+        logging.debug(
+            "Unable to resolve %d/%d BAM references to species-level taxids",
+            unresolved_references,
+            len(references),
+        )
 
     logging.debug(
         "Parsing %d references with %d processes...",
@@ -929,10 +733,8 @@ def parse_aln_from_bam(
     )
     logging.debug(
         "Parameters: min_mapq=%s, min_frac=%s, min_idt=%s, min_alen=%s, "
-        "include_secondary=%s, include_supplementary=%s, "
-        "include_duplicates=%s, include_qcfail=%s, split_read_flag=%s, "
-        "min_link_reads=%s, min_link_fraction=%s, same_genus_only=%s, "
-        "max_link_species_per_read=%s",
+        "include_secondary=%s, include_supplementary=%s, include_duplicates=%s, "
+        "include_qcfail=%s, split_read_flag=%s",
         min_mapq,
         min_frac,
         min_idt,
@@ -942,53 +744,9 @@ def parse_aln_from_bam(
         include_duplicates,
         include_qcfail,
         split_read_flag,
-        min_link_reads,
-        min_link_fraction,
-        same_genus_only,
-        max_link_species_per_read,
     )
 
-    # Resolve each reference to species once in the parent. Tasks carry only a
-    # compact integer species index, keeping taxonomy work out of the workers.
-    species_to_idx: Dict[str, int] = {}
-    idx_to_species: List[str] = []
-    idx_to_genus: List[Optional[str]] = []
-    reference_species_idx: List[Optional[int]] = []
-
-    for rname in references:
-        species_taxid = _rname_to_species_taxid(rname)
-
-        if species_taxid is None:
-            reference_species_idx.append(None)
-            continue
-
-        species_idx = species_to_idx.get(species_taxid)
-        if species_idx is None:
-            species_idx = len(idx_to_species)
-            species_to_idx[species_taxid] = species_idx
-            idx_to_species.append(species_taxid)
-            idx_to_genus.append(
-                _taxid_to_rank_taxid(species_taxid, target_rank="genus")
-            )
-
-        reference_species_idx.append(species_idx)
-
-    logging.debug(
-        "Resolved %d species across %d BAM references",
-        len(idx_to_species),
-        len(references),
-    )
-
-    # Parent-process read state. Most reads map to one species and are stored as
-    # one integer; only multi-species reads are promoted to a set.
-    read_species: Dict[str, ReadSpeciesState] = {}
-
-    tasks = _iter_tasks(
-        references,
-        lengths,
-        reference_species_idx,
-        chunk_size,
-    )
+    tasks = _iter_tasks(references, lengths, species_taxids, chunk_size)
 
     pool = mp.Pool(
         processes=processes,
@@ -1008,8 +766,14 @@ def parse_aln_from_bam(
         ),
     )
 
-    n_chunk_read_species_observations = 0
-    n_unique_read_species_observations = 0
+    # Main-process linkage state. Because a coordinate-sorted BAM can place a
+    # read's primary and alternative alignments on unrelated chunks/references,
+    # the read key must be retained until those observations are reunited.
+    primary_by_read: Dict[ReadKey, Optional[str]] = {}
+    pending_alternatives_by_read: Dict[ReadKey, Set[str]] = defaultdict(set)
+    linked_targets_by_read: Dict[ReadKey, Set[str]] = {}
+    link_counts: CounterType[DirectedLink] = Counter()
+    conflicting_primary_reads = 0
 
     try:
         ref_chunk_results: List[List] = []
@@ -1029,112 +793,47 @@ def parse_aln_from_bam(
         ref_chunk_results.append(header)
 
         mapper = pool.imap_unordered
+        for (
+            result,
+            species_taxid,
+            primary_reads,
+            alternative_reads,
+        ) in mapper(_process_chunk, tasks, chunksize=imap_chunksize):
+            result[1] += 1  # 0-based start0 -> 1-based STARTPOS
+            ref_chunk_results.append(result)
 
-        for metrics, species_idx, linkage_reads in mapper(
-            _process_chunk, tasks, chunksize=imap_chunksize
-        ):
-            if species_idx is not None:
-                n_chunk_read_species_observations += len(linkage_reads)
-
-                for qname in linkage_reads:
-                    if _add_read_species_observation(read_species, qname, species_idx,):
-                        n_unique_read_species_observations += 1
-
-            # start0 -> one-based STARTPOS. END remains numerically correct.
-            metrics[1] += 1
-            ref_chunk_results.append(metrics)
+            conflicting_primary_reads += _merge_linkage_observations(
+                species_taxid,
+                primary_reads,
+                alternative_reads,
+                primary_by_read,
+                pending_alternatives_by_read,
+                linked_targets_by_read,
+                link_counts,
+            )
 
     finally:
         pool.close()
         pool.join()
 
+    groups = _build_species_groups(link_counts)
+
     logging.debug(
         "Total signature fragments processed: %d",
         len(ref_chunk_results) - 1,
     )
-
-    (
-        species_read_counts,
-        edge_read_counts,
-        read_degree_hist,
-        n_multi_species_reads,
-        n_excluded_hyperambiguous_reads,
-    ) = _build_species_link_support(read_species, len(idx_to_species), max_link_species_per_read=max_link_species_per_read,)
-
-    groups, species_to_group, edge_rows, n_component_unions = (
-        _finalize_species_groups(
-            idx_to_species=idx_to_species,
-            idx_to_genus=idx_to_genus,
-            species_read_counts=species_read_counts,
-            edge_read_counts=edge_read_counts,
-            min_link_reads=min_link_reads,
-            min_link_fraction=min_link_fraction,
-            same_genus_only=same_genus_only,
-        )
-    )
-
-    _GROUPS = species_to_group
-    _GROUP_MEMBERS = groups
-
-    n_retained_edges = sum(1 for row in edge_rows if row[12])
-    max_species_per_read = max(read_degree_hist, default=0)
-
     logging.info(
-        "Species linkage from chunk pass: %d distinct reads, "
-        "%d unique read-species observations, %d multi-species reads, "
-        "%d observed species-pair edges, %d retained edges, "
-        "%d component unions, %d linked species groups",
-        len(read_species),
-        n_unique_read_species_observations,
-        n_multi_species_reads,
-        len(edge_read_counts),
-        n_retained_edges,
-        n_component_unions,
+        "Species linkage: %d directed species pairs supported by %d distinct "
+        "read-pair observations; %d SCC groups; %d reads with conflicting "
+        "primary species; %d alternative-only reads without an observed primary",
+        len(link_counts),
+        sum(link_counts.values()),
         len(groups),
+        conflicting_primary_reads,
+        len(pending_alternatives_by_read),
     )
-    logging.info(
-        "Species-link thresholds: min_link_reads=%d, min_link_fraction=%.6f, "
-        "same_genus_only=%s, max_link_species_per_read=%d; "
-        "max observed species/read=%d, excluded hyper-ambiguous reads=%d",
-        min_link_reads,
-        min_link_fraction,
-        same_genus_only,
-        max_link_species_per_read,
-        max_species_per_read,
-        n_excluded_hyperambiguous_reads,
-    )
-    logging.debug(
-        "Chunk read-species observations before global deduplication: %d",
-        n_chunk_read_species_observations,
-    )
-    logging.debug("Species to group mapping: %s", species_to_group)
-    logging.debug("Group members: %s", groups)
-
-    groups_out = f"{bam_path}.species_groups.tsv"
-    links_out = f"{bam_path}.species_links.tsv"
-    degree_out = f"{bam_path}.species_linkage_read_degree.tsv"
-
-    write_species_groups(groups, groups_out)
-    write_species_links(edge_rows, links_out)
-    write_linkage_read_degree_histogram(read_degree_hist, degree_out)
-
-    # write read_species to a file for debugging
-    read_species_out = f"{bam_path}.read_species.tsv"
-    with open(read_species_out, "w", encoding="utf-8") as out:
-        out.write("READ_NAME\tSPECIES_TAXIDS\n")
-        for qname, state in read_species.items():
-            if isinstance(state, int):
-                species_taxids = [idx_to_species[state]]
-            else:
-                species_taxids = [idx_to_species[idx] for idx in sorted(state)]
-            out.write(f"{qname}\t{','.join(species_taxids)}\n")
-
-    logging.info("Species groups written to %s", groups_out)
-    logging.info("Species-link diagnostics written to %s", links_out)
-    logging.info("Species/read degree histogram written to %s", degree_out)
-
-    # Linkage state is no longer needed after diagnostics/groups are finalized.
-    del read_species
+    logging.debug("Species directed-link counts: %s", dict(link_counts))
+    logging.debug("Species groups: %s", groups)
 
     return ref_chunk_results, groups
 
@@ -1145,56 +844,76 @@ def main(argv: Optional[List[str]] = None) -> int:
     )
     p.add_argument("bam", help="Input BAM path (requires .bai index).")
     p.add_argument("-o", "--out", required=True, help="Output TSV path.")
-    p.add_argument("-c", "--chunk-size", type=int, default=1_000_000,
-        help="Chunk size in reference bases for parallel tasks (default: 1,000,000). Use 0 for whole-contig.",
+    p.add_argument(
+        "-c",
+        "--chunk-size",
+        type=int,
+        default=1_000_000,
+        help=(
+            "Chunk size in reference bases for parallel tasks (default: "
+            "1,000,000). Use 0 for whole-contig."
+        ),
     )
-    p.add_argument("-p", "--processes", type=int, default=max(1, mp.cpu_count() - 1),
+    p.add_argument(
+        "-p",
+        "--processes",
+        type=int,
+        default=max(1, mp.cpu_count() - 1),
         help="Worker processes (default: cpu_count-1).",
     )
-    p.add_argument("-t", "--htslib-threads", type=int, default=1,
+    p.add_argument(
+        "-t",
+        "--htslib-threads",
+        type=int,
+        default=1,
         help="HTSlib threads per worker for BAM decompression (default: 1).",
     )
 
     # Filters
-    p.add_argument("--min-mapq", type=int, default=0, help="Minimum MAPQ to keep an alignment (default: 0).")
-    p.add_argument("--min-frac", type=float, default=0.0, help="Minimum fraction to keep an alignment (default: 0.0).")
-    p.add_argument("--min-idt", type=float, default=0.0, help="Minimum identity to keep an alignment (default: 0.0).")
-    p.add_argument("--min-alen", type=int, default=0, help="Minimum alignment length to keep an alignment (default: 0).")
-    p.add_argument("--include-secondary", action="store_true", help="Include secondary alignments (default: off).")
-    p.add_argument("--include-supplementary", action="store_true", help="Include supplementary alignments (default: off).")
-    p.add_argument("--include-duplicates", action="store_true", help="Include duplicate-marked reads (default: off).")
-    p.add_argument("--include-qcfail", action="store_true", help="Include QC-failed reads (default: off).")
-
-
-    # Species-link filtering
-    p.add_argument("--min-link-reads", type=int, default=3,
-        help=(
-            "Minimum number of distinct shared reads required to retain a "
-            "species-pair edge (default: 3)."
-        ),
-    )
-    p.add_argument("--min-link-fraction", type=float, default=0.01,
-        help=(
-            "Minimum shared_reads / min(reads_species1, reads_species2) "
-            "required to retain an edge (default: 0.01)."
-        ),
-    )
-    p.add_argument("--same-genus-only", action="store_true",
-        help=(
-            "Retain species-link edges only when both species resolve to the "
-            "same genus (default: off)."
-        ),
+    p.add_argument(
+        "--min-mapq",
+        type=int,
+        default=0,
+        help="Minimum MAPQ to keep an alignment (default: 0).",
     )
     p.add_argument(
-        "--max-link-species-per-read", type=int, default=0,
-        help=(
-            "Exclude reads mapping to more than this many species from pair "
-            "support. They still contribute to per-species read totals. "
-            "Use 0 for no limit (default: 0)."
-        ),
+        "--min-frac",
+        type=float,
+        default=0.0,
+        help="Minimum fraction to keep an alignment (default: 0.0).",
     )
-
-    # Coordinate output style
+    p.add_argument(
+        "--min-idt",
+        type=float,
+        default=0.0,
+        help="Minimum identity to keep an alignment (default: 0.0).",
+    )
+    p.add_argument(
+        "--min-alen",
+        type=int,
+        default=0,
+        help="Minimum alignment length to keep an alignment (default: 0).",
+    )
+    p.add_argument(
+        "--include-secondary",
+        action="store_true",
+        help="Include secondary alignments in coverage metrics (default: off).",
+    )
+    p.add_argument(
+        "--include-supplementary",
+        action="store_true",
+        help="Include supplementary alignments in coverage metrics (default: off).",
+    )
+    p.add_argument(
+        "--include-duplicates",
+        action="store_true",
+        help="Include duplicate-marked reads (default: off).",
+    )
+    p.add_argument(
+        "--include-qcfail",
+        action="store_true",
+        help="Include QC-failed reads (default: off).",
+    )
     p.add_argument(
         "--imap-chunksize",
         type=int,
@@ -1204,7 +923,7 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     args = p.parse_args(argv)
 
-    ref_results = parse_aln_from_bam(
+    parsed = parse_aln_from_bam(
         bam_path=args.bam,
         processes=args.processes,
         min_frac=args.min_frac,
@@ -1218,18 +937,22 @@ def main(argv: Optional[List[str]] = None) -> int:
         include_supplementary=args.include_supplementary,
         include_duplicates=args.include_duplicates,
         include_qcfail=args.include_qcfail,
-        min_link_reads=args.min_link_reads,
-        min_link_fraction=args.min_link_fraction,
-        same_genus_only=args.same_genus_only,
-        max_link_species_per_read=args.max_link_species_per_read,
     )
-    
-    out_path=args.out
-    with open(out_path, "w", encoding="utf-8") as out:
+
+    if parsed == 2:
+        return 2
+
+    ref_results, groups = parsed
+
+    with open(args.out, "w", encoding="utf-8") as out:
         for res in ref_results:
             out.write("\t".join(map(str, res)) + "\n")
 
+    if groups:
+        logging.info("Identified linked species groups: %s", groups)
+
     return 0
+
 
 if __name__ == "__main__":
     raise SystemExit(main())
