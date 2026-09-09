@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
 import argparse as ap
-from asyncio import threads
 import re
 import sys, os, time, subprocess
 import pandas as pd
@@ -20,7 +19,7 @@ try:
     import ont_utils
     import read_mapping
     import aggregate_results
-    import reciprocal_graph as rg
+    import reciprocal_graph
     import extract_reads
     import gottcha.utils.prefilter as prefilter
     import sig_archive
@@ -36,7 +35,7 @@ except ImportError:
     import gottcha.utils.read_mapping as read_mapping
     import gottcha.utils.extract_reads as extract_reads
     import gottcha.utils.prefilter as prefilter
-    import gottcha.utils.reciprocal_graph as rg
+    import gottcha.utils.reciprocal_graph as reciprocal_graph
     import gottcha.utils.sig_archive as sig_archive
     from gottcha.gottcha2 import __version__
 
@@ -1107,7 +1106,7 @@ def main(args):
     
     if Path(samfile).is_file():
         print_message("Resolving reciprocal relationships from SAM file...", argvs.silent, begin_t, logfile)
-        reciprocal_groups = rg.reciprocal_relationships_from_sam(samfile)
+        reciprocal_groups = reciprocal_graph.reciprocal_relationships_from_sam(samfile)
         tol_reciprocal_groups = len(reciprocal_groups)
         print_message(f" - {tol_reciprocal_groups:,} reciprocal groups identified", argvs.silent, begin_t, logfile)
         if tol_reciprocal_groups == 0:
